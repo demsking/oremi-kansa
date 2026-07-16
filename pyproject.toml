@@ -1,0 +1,80 @@
+[project]
+name = "oremi-kansa"
+version = "1.0.0b0"
+description = "MCP server for podcast discovery and playback."
+authors = [{ name = "Sébastien Demanou", email = "demsking@gmail.com" }]
+maintainers = [{ name = "Sébastien Demanou", email = "demsking@gmail.com" }]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+readme = "README.md"
+
+keywords = [
+  "mcp",
+  "model-context-protocol",
+  "podcast",
+  "podcasts",
+  "audio",
+  "streaming",
+  "media",
+  "llm",
+  "agent",
+  "ai",
+  "oremi",
+]
+
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+  "fastapi[standard]>=0.115.0,<1.0.0",
+  "uvicorn>=0.34.0,<1.0.0",
+  "pydantic>=2.10.0,<3.0.0",
+  "pydantic-settings>=2.14.2",
+  "mcp>=1.28.1",
+  "httpx>=0.28.0,<1.0.0",
+  "defusedxml>=0.7.1,<1.0.0",
+]
+
+[project.urls]
+"Say Thanks!" = "https://www.buymeacoffee.com/demsking"
+"Source" = "https://gitlab.com/demsking/oremi-kansa"
+"Tracker" = "https://gitlab.com/demsking/oremi-kansa/-/issues"
+"Documentation" = "https://gitlab.com/demsking/oremi-kansa/-/blob/main/README.md"
+
+[project.scripts]
+oremi-kansa = "kansa.__main__:start"
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1.1",
+  "pytest-asyncio>=1.0.0",
+  "ruff>=0.12.0",
+  "twine>=6.2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kansa"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 80
+target-version = "py312"
+indent-width = 2
+
+[tool.ruff.format]
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008", "I001"]

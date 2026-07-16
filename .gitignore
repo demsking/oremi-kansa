@@ -1,0 +1,15 @@
+.venv/
+.devbox/
+.trunk/
+htmlcov/
+data/
+dist/
+__pycache__/
+.ruff_cache/
+.nix-node/
+.directory
+.coverage
+*.log
+*.log.*
+.direnv/
+build/
