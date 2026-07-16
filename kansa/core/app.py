@@ -29,6 +29,7 @@ from .database import PodcastDatabase
 from .package import APP_DESCRIPTION
 from .package import APP_NAME
 from .package import APP_VERSION
+from .podcast_index import PodcastIndexClient
 from .server import create_mcp_server
 from .settings import Settings
 
@@ -40,6 +41,8 @@ def log_startup_settings(settings: Settings) -> None:
   """Log every configured application setting without exposing secrets."""
   for name in settings.__class__.model_fields:
     value = getattr(settings, name)
+    if "secret" in name or "key" in name:
+      value = "***" if value else None
     logger.info("Setting %s: %s", name, value)
 
 
@@ -55,7 +58,13 @@ def create_app(settings: Settings) -> FastAPI:
   )
 
   database = PodcastDatabase(settings, http_client)
-  mcp_server = create_mcp_server(settings, database, http_client)
+  podcast_index = PodcastIndexClient(settings, http_client)
+  mcp_server = create_mcp_server(
+    settings,
+    database,
+    podcast_index,
+    http_client,
+  )
 
   @asynccontextmanager
   async def lifespan(app: FastAPI):
@@ -73,7 +82,14 @@ def create_app(settings: Settings) -> FastAPI:
     stack = AsyncExitStack()
 
     try:
-      await database.start()
+      if settings.catalog_backend == "api":
+        logger.info("Using Podcast Index API catalog backend")
+        await podcast_index.start()
+        await database.start_episode_cache()
+      else:
+        logger.info("Using local database catalog backend")
+        await database.start()
+
       await stack.enter_async_context(mcp_server.session_manager.run())
 
       ready = True

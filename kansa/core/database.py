@@ -106,6 +106,12 @@ class PodcastDatabase:
         name="podcast-database-updater",
       )
 
+  async def start_episode_cache(self) -> None:
+    """Prepare only the episode cache for API-backed catalog mode."""
+    self.data_path.mkdir(parents=True, exist_ok=True)
+    logger.info("Preparing podcast episode cache")
+    await asyncio.to_thread(self._prepare_cache)
+
   async def close(self) -> None:
     """Stop the background updater."""
     if self._task:

@@ -58,6 +58,27 @@ class Settings(BaseSettings):
     description="Application identifier sent to Podcast Index.",
   )
 
+  catalog_backend: Literal["database", "api"] = Field(
+    default="database",
+    description="Podcast catalog backend: local database or Podcast Index API.",
+  )
+
+  podcast_index_api_base_url: str = Field(
+    default="https://api.podcastindex.org/api/1.0",
+    min_length=1,
+    description="Podcast Index API base URL.",
+  )
+
+  podcast_index_api_key: str | None = Field(
+    default=None,
+    description="Podcast Index API key for API backend mode.",
+  )
+
+  podcast_index_api_secret: str | None = Field(
+    default=None,
+    description="Podcast Index API secret for API backend mode.",
+  )
+
   database_download_url: str = Field(
     default="https://public.podcastindex.org/podcastindex_feeds.db.tgz",
     min_length=1,
@@ -136,6 +157,11 @@ class Settings(BaseSettings):
     if not value.startswith("/"):
       raise ValueError("OREMI_KANSA_API_PREFIX must start with '/'")
     return value.rstrip("/") or "/"
+
+  @field_validator("podcast_index_api_base_url")
+  @classmethod
+  def validate_podcast_index_api_base_url(cls, value: str) -> str:
+    return value.rstrip("/")
 
 
 @lru_cache

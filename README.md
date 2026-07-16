@@ -27,7 +27,7 @@ unified MCP interface.
 - Retrieve detailed podcast and episode metadata
 - Browse categories, trending shows, and related podcasts
 - Return structured, validated response models for MCP clients
-- Query the offline Podcast Index SQLite catalog with structured models
+- Use either the public Podcast Index API or the offline SQLite catalog
 - Accelerate searches with persistent FTS5 indexes and a bounded memory cache
 - Persist and periodically refresh the catalog in `/oremi/data` in Docker
 - Run with multiple Docker Swarm replicas against the same cluster-shared volume

@@ -40,6 +40,7 @@ from .models import PodcastSearchResponse
 from .models import PodcastSummary
 from .models import PositiveId
 from .models import ResultLimit
+from .podcast_index import PodcastIndexClient
 from .settings import Settings
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True)
@@ -133,20 +134,34 @@ def _podcast_data(row: dict[str, Any]) -> dict[str, Any]:
 def create_mcp_server(
   settings: Settings,
   database: PodcastDatabase,
+  podcast_index: PodcastIndexClient,
   http_client: httpx.AsyncClient,
 ) -> FastMCP:
-  """Build an MCP server backed by the offline podcast database."""
+  """Build an MCP server backed by the configured podcast catalog."""
   mcp = FastMCP(
     name="Oremi Kànsà",
     instructions=(
-      "Browse the offline podcast catalog and retrieve public feed episodes."
+      "Browse the podcast catalog and retrieve public feed episodes."
     ),
     stateless_http=True,
     json_response=True,
     streamable_http_path="/mcp",
   )
 
+  using_api = settings.catalog_backend == "api"
+
   async def podcast(feed_id: int) -> PodcastDetails:
+    if using_api:
+      feed = await podcast_index.get_podcast(feed_id)
+
+      if not feed:
+        raise ToolError("Podcast not found")
+
+      try:
+        return PodcastDetails.model_validate(feed)
+      except ValidationError as exc:
+        raise ToolError("The Podcast Index API record is malformed") from exc
+
     rows = await database.rows(
       "SELECT * FROM podcasts WHERE id = ? AND id > 0 AND dead = 0 "
       "AND title IS NOT NULL AND TRIM(title) != ''",
@@ -157,7 +172,7 @@ def create_mcp_server(
     try:
       return PodcastDetails.model_validate(_podcast_data(rows[0]))
     except ValidationError as exc:
-      raise ToolError("The offline podcast record is malformed") from exc
+      raise ToolError("The podcast record is malformed") from exc
 
   async def search(
     query: str,
@@ -166,6 +181,30 @@ def create_mcp_server(
     explicit: bool | None,
     limit: int,
   ) -> list[PodcastSummary]:
+    if using_api:
+      try:
+        if query == "%":
+          feeds = await podcast_index.trending_podcasts(
+            language,
+            category,
+            limit,
+          )
+          if explicit is not None:
+            feeds = [
+              feed for feed in feeds if feed.get("explicit") is explicit
+            ][:limit]
+        else:
+          feeds = await podcast_index.search_podcasts(
+            query,
+            language,
+            category,
+            explicit,
+            limit,
+          )
+        return [PodcastSummary.model_validate(feed) for feed in feeds]
+      except ValidationError as exc:
+        raise ToolError("The Podcast Index API record is malformed") from exc
+
     use_fts = query != "%" and settings.database_search_index_enabled
     clauses = [
       "p.id > 0",
@@ -229,9 +268,12 @@ def create_mcp_server(
     try:
       return [PodcastSummary.model_validate(_podcast_data(row)) for row in rows]
     except ValidationError as exc:
-      raise ToolError("The offline podcast record is malformed") from exc
+      raise ToolError("The podcast record is malformed") from exc
 
   async def categories() -> list[PodcastCategory]:
+    if using_api:
+      return await podcast_index.categories()
+
     rows = await database.rows(_CATEGORIES_SQL)
 
     return [
@@ -271,14 +313,14 @@ def create_mcp_server(
     category: NonEmptyString | None = None,
     limit: ResultLimit = 10,
   ) -> PodcastSearchResponse:
-    """Search the offline catalog by keyword, language, and category."""
+    """Search the podcast catalog by keyword, language, and category."""
     items = await search(query, language, category, None, limit)
 
     return PodcastSearchResponse(podcasts=items, count=len(items))
 
   @mcp.tool(annotations=READ_ONLY)
   async def get_podcast(feed_id: PositiveId) -> PodcastDetails:
-    """Retrieve detailed metadata from the offline podcast catalog."""
+    """Retrieve detailed metadata from the podcast catalog."""
     return await podcast(feed_id)
 
   @mcp.tool(annotations=READ_ONLY)
@@ -286,23 +328,29 @@ def create_mcp_server(
     feed_id: PositiveId,
     limit: ResultLimit = 10,
   ) -> EpisodeListResponse:
-    """Retrieve recent episodes using a locally indexed public feed URL."""
+    """Retrieve recent episodes using the public feed URL."""
     items = (await episodes(await podcast(feed_id)))[:limit]
 
     return EpisodeListResponse(episodes=items, count=len(items))
 
   @mcp.tool(annotations=READ_ONLY)
   async def get_episode(episode_id: PositiveId) -> EpisodeDetails:
-    """Retrieve an episode previously stored in the offline cache."""
+    """Retrieve an episode previously stored in the episode cache."""
     item = await database.cached_episode(episode_id)
 
     if item is None:
-      raise ToolError("Episode not found; list or search episodes first")
+      if not using_api:
+        raise ToolError("Episode not found; list or search episodes first")
+
+      item = await podcast_index.get_episode(episode_id)
+
+    if item is None:
+      raise ToolError("Episode not found")
 
     try:
       return EpisodeDetails.model_validate(item)
     except ValidationError as exc:
-      raise ToolError("The cached episode is malformed") from exc
+      raise ToolError(f"The episode record is malformed: {exc}") from exc
 
   @mcp.tool(annotations=READ_ONLY)
   async def search_episodes(
@@ -310,7 +358,7 @@ def create_mcp_server(
     language: LanguageCode | None = None,
     limit: ResultLimit = 10,
   ) -> EpisodeSearchResponse:
-    """Search recent episodes from podcasts matched in the offline catalog."""
+    """Search recent episodes from podcasts matched in the catalog."""
     feeds = await search(query, language, None, None, min(limit, 10))
     details = await asyncio.gather(*(podcast(item.id) for item in feeds))
     results = await asyncio.gather(
@@ -340,7 +388,7 @@ def create_mcp_server(
 
   @mcp.tool(annotations=READ_ONLY)
   async def list_categories() -> CategoryListResponse:
-    """List categories available in the offline podcast catalog."""
+    """List categories available in the podcast catalog."""
     items = await categories()
 
     return CategoryListResponse(categories=items, count=len(items))
@@ -351,7 +399,7 @@ def create_mcp_server(
     language: LanguageCode | None = None,
     limit: ResultLimit = 10,
   ) -> PodcastListResponse:
-    """Browse popular offline podcasts in a category."""
+    """Browse popular podcasts in a category."""
     name = await category_name(category_id)
     items = await search("%", language, name, None, limit)
 
@@ -363,9 +411,15 @@ def create_mcp_server(
     category_id: PositiveId | None = None,
     limit: ResultLimit = 10,
   ) -> PodcastListResponse:
-    """Rank active offline podcasts by popularity and recency."""
     name = await category_name(category_id) if category_id else None
-    items = await search("%", language, name, None, limit)
+    if using_api:
+      try:
+        feeds = await podcast_index.trending_podcasts(language, name, limit)
+        items = [PodcastSummary.model_validate(feed) for feed in feeds]
+      except ValidationError as exc:
+        raise ToolError("The Podcast Index API record is malformed") from exc
+    else:
+      items = await search("%", language, name, None, limit)
 
     return PodcastListResponse(podcasts=items, count=len(items))
 
@@ -374,7 +428,7 @@ def create_mcp_server(
     feed_id: PositiveId,
     limit: ResultLimit = 10,
   ) -> PodcastListResponse:
-    """Find offline podcasts sharing categories with a podcast."""
+    """Find podcasts sharing categories with a podcast."""
     source = await podcast(feed_id)
     if not source.categories:
       return PodcastListResponse(podcasts=[], count=0)
@@ -392,7 +446,7 @@ def create_mcp_server(
     explicit: bool | None = None,
     limit: ResultLimit = 10,
   ) -> PodcastListResponse:
-    """Discover offline podcasts using multiple filters."""
+    """Discover podcasts using multiple filters."""
     name = await category_name(category_id) if category_id else None
     items = await search(topic or "%", language, name, explicit, limit)
 

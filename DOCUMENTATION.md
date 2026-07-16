@@ -25,7 +25,7 @@ Project repository: https://gitlab.com/demsking/oremi-kansa
 - Retrieve detailed podcast and episode metadata
 - Browse categories, trending shows, and related podcasts
 - Return structured, validated response models for MCP clients
-- Query the offline Podcast Index SQLite catalog with structured models
+- Use either the public Podcast Index API or the offline SQLite catalog
 - Accelerate searches with persistent FTS5 indexes and a bounded memory cache
 - Persist and periodically refresh the catalog in `/oremi/data` in Docker
 - Configure database updates, HTTP timeouts, HTTP binding, API prefix, and
@@ -117,6 +117,10 @@ locking and close-to-open cache consistency across all nodes.
 Oremi Kànsà is lightweight once the catalog is ready, but the first startup and
 each catalog refresh can be resource intensive because the service downloads,
 validates, extracts, and indexes a multi-gigabyte SQLite database.
+
+These requirements apply to the default `database` backend. The `api` backend
+does not download or index the local catalog, so it starts much faster and only
+needs enough storage for the small episode cache.
 
 - **Minimum per replica**: 1 CPU, 2 GB RAM, and 20 GB of shared persistent
   storage for `/oremi/data`.
@@ -221,79 +225,113 @@ defaults; increase them for low-performance nodes or very slow shared storage.
 
 Every setting is optional and uses the `OREMI_KANSA_` prefix.
 
-### Server
+### Server Settings
 
-- **`OREMI_KANSA_SERVER_HOST`** — HTTP address on which the server listens.
-  Defaults to `127.0.0.1`. Use `0.0.0.0` in a container or when the service must
-  accept connections from other machines.
+- **`OREMI_KANSA_SERVER_HOST`**
+  HTTP address on which the server listens. Use `0.0.0.0` in a
+  container or when accepting connections from other machines.
+  Defaults to `127.0.0.1`.
 
-- **`OREMI_KANSA_SERVER_PORT`** — HTTP listening port. Defaults to `5046` and
-  must be between `1` and `65535`.
+- **`OREMI_KANSA_SERVER_PORT`**
+  HTTP listening port. Must be between `1` and `65535`.
+  Defaults to `5046`.
 
-- **`OREMI_KANSA_API_PREFIX`** — Base path for every HTTP endpoint. Defaults
-  to `/`. This is useful when Oremi Kànsà is exposed below a path such as
-  `/kansa` by a reverse proxy. The value must begin with `/`; a trailing slash
-  is removed automatically.
+- **`OREMI_KANSA_API_PREFIX`**
+  Base path for every HTTP endpoint. Useful when exposing
+  below a path like `/kansa` via reverse proxy. Must begin with
+  `/`; trailing slash removed automatically. Defaults to `/`.
 
-### Offline Podcast Index database
+### Catalog Backend
 
-- **`OREMI_KANSA_DATABASE_DOWNLOAD_URL`** — Location of the compressed
-  Podcast Index SQLite catalog.
+Choose between local database or direct Podcast Index API:
 
-- **`OREMI_KANSA_DATA_PATH`** — Catalog and episode-cache directory. Defaults
-  to `data` locally and `/oremi/data` in Docker. In Docker Swarm, all replicas
-  should point this setting to the same mounted shared volume.
+- **`OREMI_KANSA_CATALOG_BACKEND`**
+  Backend mode: `database` (local SQLite) or `api` (direct
+  Podcast Index API). Defaults to `database`.
 
-- **`OREMI_KANSA_DATABASE_AUTO_UPDATE`** — Enables atomic background catalog
-  updates. Defaults to `true`.
+- **`OREMI_KANSA_PODCAST_INDEX_API_BASE_URL`**
+  Podcast Index API base URL. Used only in `api` mode.
+  Defaults to `https://api.podcastindex.org/api/1.0`.
 
-- **`OREMI_KANSA_DATABASE_UPDATE_INTERVAL_HOURS`** — Hours between update
-  attempts. Defaults to `24`.
+- **`OREMI_KANSA_PODCAST_INDEX_API_KEY`**
+  Podcast Index API key. Required in `api` mode.
 
-- **`OREMI_KANSA_DATABASE_SEARCH_INDEX_ENABLED`** — Builds persistent FTS5,
-  category, language, and ranking indexes. Defaults to `true`. The first
-  startup for a new snapshot takes longer while these indexes are built;
-  subsequent queries and startups reuse them.
+- **`OREMI_KANSA_PODCAST_INDEX_API_SECRET`**
+  Podcast Index API secret. Required in `api` mode.
+  Redacted from logs.
 
-  On low-performance storage or small hosts, database validation and
-  persistent search-index creation can take a long time because they scan
-  and write a multi-gigabyte SQLite catalog.
+#### Backend Mode Comparison
 
-- **`OREMI_KANSA_QUERY_CACHE_SIZE`** — Maximum number of identical query
-  results retained in process memory. Defaults to `256`. Set it to `0` to
-  disable the memory cache. The cache is cleared whenever the snapshot is
-  replaced.
+- **`database` mode**
+  Slower first startup; supports full-catalog searching after
+  download and indexing.
 
-- **`OREMI_KANSA_USER_AGENT`** — Identifier used for catalog and RSS feed
-  downloads. Defaults to `oremi-kansa/<version>`.
+- **`api` mode**
+  Avoids multi-gigabyte download and indexing; requires
+  Podcast Index API credentials; relies on public API for
+  searches.
 
-- **`OREMI_KANSA_HTTP_CONNECT_TIMEOUT`** — Connection timeout in seconds.
-  Defaults to `5`.
+### Database Settings (database mode only)
 
-- **`OREMI_KANSA_HTTP_READ_TIMEOUT`** — Response read timeout in seconds.
-  Defaults to `15`.
+- **`OREMI_KANSA_DATABASE_DOWNLOAD_URL`**
+  Location of the compressed Podcast Index SQLite catalog.
 
-- **`OREMI_KANSA_HTTP_WRITE_TIMEOUT`** — Request write timeout in seconds.
-  Defaults to `5`.
+- **`OREMI_KANSA_DATA_PATH`**
+  Catalog and episode-cache directory. In Docker Swarm, point
+  all replicas to the same mounted shared volume. Defaults to
+  `data` locally and `/oremi/data` in Docker.
 
-- **`OREMI_KANSA_HTTP_POOL_TIMEOUT`** — Connection pool timeout in seconds.
-  Defaults to `5`.
+- **`OREMI_KANSA_DATABASE_AUTO_UPDATE`**
+  Enable atomic background catalog updates. Defaults to `true`.
+
+- **`OREMI_KANSA_DATABASE_UPDATE_INTERVAL_HOURS`**
+  Hours between update attempts. Defaults to `24`.
+
+- **`OREMI_KANSA_DATABASE_SEARCH_INDEX_ENABLED`**
+  Build persistent FTS5, category, language, and ranking
+  indexes. First startup takes longer; subsequent startups and
+  queries reuse them. Defaults to `true`.
+
+> **Performance note**: On low-performance storage, database
+> validation and persistent search-index creation can take
+> significant time as they scan and write a multi-gigabyte
+> SQLite catalog.
+
+### Query & Network Settings
+
+- **`OREMI_KANSA_QUERY_CACHE_SIZE`**
+  Maximum number of identical query results retained in
+  memory. Set to `0` to disable. Cache clears when snapshot is
+  replaced. Defaults to `256`.
+
+- **`OREMI_KANSA_USER_AGENT`**
+  Identifier used for catalog and RSS feed downloads.
+  Defaults to `oremi-kansa/<version>`.
+
+- **`OREMI_KANSA_HTTP_CONNECT_TIMEOUT`**
+  Connection timeout in seconds. Defaults to `5`.
+
+- **`OREMI_KANSA_HTTP_READ_TIMEOUT`**
+  Response read timeout in seconds. Defaults to `15`.
+
+- **`OREMI_KANSA_HTTP_WRITE_TIMEOUT`**
+  Request write timeout in seconds. Defaults to `5`.
+
+- **`OREMI_KANSA_HTTP_POOL_TIMEOUT`**
+  Connection pool timeout in seconds. Defaults to `5`.
 
 ### Logging
 
-- **`OREMI_KANSA_LOG_LEVEL`** — Application logging verbosity. Defaults to
-  `INFO`. Accepted values are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and
-  `CRITICAL`. At `DEBUG`, log records also include the Python logger name.
+- **`OREMI_KANSA_LOG_LEVEL`**
+  Logging verbosity. Accepted values: `DEBUG`, `INFO`,
+  `WARNING`, `ERROR`, `CRITICAL`. At `DEBUG`, logs include
+  Python logger name. Defaults to `INFO`.
 
-- **`OREMI_KANSA_LOG_FILE`** — Optional path for persistent logs. It is unset
-  by default, so logs are written only to the console. When configured, console
-  logging remains enabled and parent directories are created automatically.
-  Files rotate at approximately 5 MB, with up to five backups retained.
-
-Oremi Kànsà logs the effective configuration during startup. During initial
-startup or after a catalog refresh, it also logs each database step: download,
-extraction, validation, search-index preparation, and shared snapshot
-replacement.
+- **`OREMI_KANSA_LOG_FILE`**
+  Optional path for persistent logs. When set, console
+  logging remains enabled and parent directories are created
+  automatically. Files rotate at approximately 5 MB, with up to
+  five backups retained. Unset by default (console only).
 
 ## Transport
 

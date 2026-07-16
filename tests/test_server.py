@@ -9,6 +9,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from kansa.core.database import DATABASE_NAME
 from kansa.core.database import PodcastDatabase
+from kansa.core.podcast_index import PodcastIndexClient
 from kansa.core.server import _category_id
 from kansa.core.server import create_mcp_server
 from kansa.core.settings import Settings
@@ -86,6 +87,19 @@ def insert_podcast(
     )
 
 
+def mcp_server(
+  settings: Settings,
+  database: PodcastDatabase,
+  client: httpx.AsyncClient,
+):
+  return create_mcp_server(
+    settings,
+    database,
+    PodcastIndexClient(settings, client),
+    client,
+  )
+
+
 @pytest.fixture
 async def catalog(tmp_path: Path):
   create_database(tmp_path / DATABASE_NAME)
@@ -120,11 +134,7 @@ async def test_tool_schemas_remain_structured_and_constrained(catalog) -> None:
   settings, database, client = catalog
   tools = {
     tool.name: tool
-    for tool in await create_mcp_server(
-      settings,
-      database,
-      client,
-    ).list_tools()
+    for tool in await mcp_server(settings, database, client).list_tools()
   }
   assert len(tools) == 10
   schema = tools["search_podcasts"].inputSchema["properties"]
@@ -146,7 +156,7 @@ async def test_tool_schemas_remain_structured_and_constrained(catalog) -> None:
 
 async def test_search_and_details_use_offline_database(catalog) -> None:
   settings, database, client = catalog
-  server = create_mcp_server(settings, database, client)
+  server = mcp_server(settings, database, client)
   _, search = await server.call_tool(
     "search_podcasts",
     {
@@ -178,7 +188,7 @@ async def test_noncanonical_snapshot_records_are_normalized_or_skipped(
   )
   database = PodcastDatabase(settings, client)
   await database.start()
-  server = create_mcp_server(settings, database, client)
+  server = mcp_server(settings, database, client)
   _, result = await server.call_tool(
     "discover_podcasts",
     {"topic": "Type", "limit": 10},
@@ -216,7 +226,7 @@ async def test_search_episodes_accepts_empty_itunes_id(
   )
   database = PodcastDatabase(settings, client)
   await database.start()
-  server = create_mcp_server(settings, database, client)
+  server = mcp_server(settings, database, client)
   _, result = await server.call_tool(
     "search_episodes",
     {"query": "Empty iTunes", "limit": 10},
@@ -306,7 +316,7 @@ async def test_query_cache_invalidates_when_shared_database_is_replaced(
 
 async def test_episode_listing_fetches_rss_and_populates_cache(catalog) -> None:
   settings, database, client = catalog
-  server = create_mcp_server(settings, database, client)
+  server = mcp_server(settings, database, client)
   _, listed = await server.call_tool(
     "list_podcast_episodes",
     {"feed_id": 42, "limit": 5},
@@ -322,7 +332,7 @@ async def test_episode_listing_fetches_rss_and_populates_cache(catalog) -> None:
 
 async def test_categories_use_stable_local_identifiers(catalog) -> None:
   settings, database, client = catalog
-  server = create_mcp_server(settings, database, client)
+  server = mcp_server(settings, database, client)
   _, result = await server.call_tool("list_categories", {})
   assert result == {
     "categories": [
@@ -335,7 +345,7 @@ async def test_categories_use_stable_local_identifiers(catalog) -> None:
 
 async def test_invalid_inputs_are_rejected_without_queries(catalog) -> None:
   settings, database, client = catalog
-  server = create_mcp_server(settings, database, client)
+  server = mcp_server(settings, database, client)
   with pytest.raises(Exception, match="validation error"):
     await server.call_tool(
       "search_podcasts",
@@ -345,9 +355,219 @@ async def test_invalid_inputs_are_rejected_without_queries(catalog) -> None:
 
 async def test_missing_cached_episode_is_a_safe_error(catalog) -> None:
   settings, database, client = catalog
-  server = create_mcp_server(settings, database, client)
+  server = mcp_server(settings, database, client)
   with pytest.raises(ToolError, match="list or search episodes first"):
     await server.call_tool("get_episode", {"episode_id": 123})
+
+
+async def test_api_backend_uses_podcast_index_without_local_catalog(
+  tmp_path: Path,
+) -> None:
+  seen_paths: list[str] = []
+  api_feed = {
+    "id": 42,
+    "title": "API Podcast",
+    "url": "https://feeds.example/show.xml",
+    "description": "A technology testing podcast",
+    "author": "API Author",
+    "language": "en",
+    "explicit": "false",
+    "type": "podcast",
+    "medium": "publisher",
+    "categories": {"Technology": 101},
+  }
+  related_feed = {
+    **api_feed,
+    "id": 43,
+    "title": "Related API Podcast",
+    "url": "https://feeds.example/related.xml",
+  }
+
+  def handler(request: httpx.Request) -> httpx.Response:
+    seen_paths.append(request.url.path)
+
+    if request.url.host == "feeds.example":
+      return httpx.Response(
+        200,
+        content=(
+          b"<rss><channel><item><title>Technology testing today</title>"
+          b"<guid>api-episode-1</guid>"
+          b"<description>A testing episode from API mode</description>"
+          b"<pubDate>Thu, 16 Jul 2026 10:00:00 GMT</pubDate>"
+          b"<enclosure url='https://example.test/api-episode.mp3' "
+          b"type='audio/mpeg'/></item></channel></rss>"
+        ),
+      )
+
+    if request.url.path.endswith("/search/byterm"):
+      return httpx.Response(
+        200,
+        json={"feeds": [api_feed]},
+      )
+
+    if request.url.path.endswith("/podcasts/byfeedid"):
+      feed = related_feed if request.url.params.get("id") == "43" else api_feed
+      return httpx.Response(200, json={"feed": feed})
+
+    if request.url.path.endswith("/episodes/byid"):
+      return httpx.Response(
+        200,
+        json={
+          "episode": {
+            "id": 9001,
+            "feedId": 42,
+            "feedTitle": "API Podcast",
+            "title": "Podcast Index API Episode",
+            "description": "Fetched directly by Podcast Index episode ID",
+            "datePublished": 1784200000,
+            "duration": "3600",
+            "explicit": "false",
+            "enclosureUrl": "https://example.test/index-episode.mp3",
+            "enclosureType": "audio/mpeg",
+          }
+        },
+      )
+
+    if request.url.path.endswith("/podcasts/trending"):
+      return httpx.Response(
+        200,
+        json={"feeds": [api_feed, related_feed]},
+      )
+
+    if request.url.path.endswith("/categories/list"):
+      return httpx.Response(
+        200,
+        json={"feeds": {"101": "Technology", "102": "News"}},
+      )
+
+    return httpx.Response(404)
+
+  client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+  settings = Settings(
+    catalog_backend="api",
+    data_path=str(tmp_path),
+    podcast_index_api_base_url="https://api.example.test/api/1.0",
+    podcast_index_api_key="key",
+    podcast_index_api_secret="secret",
+  )
+  database = PodcastDatabase(settings, client)
+  await database.start_episode_cache()
+  server = mcp_server(settings, database, client)
+
+  _, search = await server.call_tool(
+    "search_podcasts",
+    {"query": "testing", "category": "Technology", "limit": 5},
+  )
+  _, details = await server.call_tool("get_podcast", {"feed_id": 42})
+  _, direct_episode = await server.call_tool(
+    "get_episode",
+    {"episode_id": 9001},
+  )
+  _, listed = await server.call_tool(
+    "list_podcast_episodes",
+    {"feed_id": 42, "limit": 5},
+  )
+  episode_id = listed["episodes"][0]["id"]
+  _, episode = await server.call_tool("get_episode", {"episode_id": episode_id})
+  _, episode_search = await server.call_tool(
+    "search_episodes",
+    {"query": "testing", "limit": 5},
+  )
+  _, categories = await server.call_tool("list_categories", {})
+  _, category = await server.call_tool(
+    "browse_category",
+    {"category_id": 101, "limit": 5},
+  )
+  _, trending = await server.call_tool(
+    "trending_podcasts",
+    {"category_id": 101, "limit": 5},
+  )
+  _, similar = await server.call_tool(
+    "similar_podcasts",
+    {"feed_id": 42, "limit": 5},
+  )
+  _, discovered = await server.call_tool(
+    "discover_podcasts",
+    {
+      "language": "en",
+      "category_id": 101,
+      "explicit": False,
+      "limit": 5,
+    },
+  )
+
+  assert search["podcasts"][0]["title"] == "API Podcast"
+  assert search["podcasts"][0]["podcast_type"] is None
+  assert search["podcasts"][0]["medium"] is None
+  assert search["podcasts"][0]["categories"][0] == {
+    "id": 101,
+    "name": "Technology",
+  }
+  assert details["author"] == "API Author"
+  assert direct_episode["title"] == "Podcast Index API Episode"
+  assert direct_episode["duration"] == 3600
+  assert listed["episodes"][0]["title"] == "Technology testing today"
+  assert episode["id"] == episode_id
+  assert episode_search["episodes"][0]["id"] == episode_id
+  assert categories["categories"] == [
+    {"id": 101, "name": "Technology"},
+    {"id": 102, "name": "News"},
+  ]
+  assert category["podcasts"][0]["id"] == 42
+  assert trending["podcasts"][0]["id"] == 42
+  assert similar["podcasts"][0]["id"] == 43
+  assert discovered["podcasts"][0]["id"] == 42
+  assert not (tmp_path / DATABASE_NAME).exists()
+  assert "/api/1.0/search/byterm" in seen_paths
+  assert "/api/1.0/podcasts/byfeedid" in seen_paths
+  assert "/api/1.0/episodes/byid" in seen_paths
+  assert "/api/1.0/podcasts/trending" in seen_paths
+  assert "/api/1.0/categories/list" in seen_paths
+  await database.close()
+  await client.aclose()
+
+
+async def test_api_get_episode_accepts_episode_list_response(
+  tmp_path: Path,
+) -> None:
+  def handler(request: httpx.Request) -> httpx.Response:
+    if request.url.path.endswith("/episodes/byid"):
+      return httpx.Response(
+        200,
+        json={
+          "episodes": [
+            {
+              "id": 424819258337909000,
+              "feedId": 42,
+              "title": "Large Podcast Index Episode",
+            }
+          ]
+        },
+      )
+
+    return httpx.Response(404)
+
+  client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+  settings = Settings(
+    catalog_backend="api",
+    data_path=str(tmp_path),
+    podcast_index_api_base_url="https://api.example.test/api/1.0",
+    podcast_index_api_key="key",
+    podcast_index_api_secret="secret",
+  )
+  database = PodcastDatabase(settings, client)
+  await database.start_episode_cache()
+  server = mcp_server(settings, database, client)
+
+  _, episode = await server.call_tool(
+    "get_episode",
+    {"episode_id": 424819258337909000},
+  )
+
+  assert episode["id"] == 424819258337909000
+  assert episode["title"] == "Large Podcast Index Episode"
+  await database.close()
+  await client.aclose()
 
 
 async def test_legacy_episode_cache_schema_is_migrated(
@@ -426,3 +646,15 @@ def test_offline_settings_load_from_environment(
   assert settings.data_path == "/tmp/catalog"
   assert settings.database_auto_update is False
   assert settings.database_update_interval_hours == 12
+
+
+def test_api_settings_load_from_environment(
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  monkeypatch.setenv("OREMI_KANSA_CATALOG_BACKEND", "api")
+  monkeypatch.setenv("OREMI_KANSA_PODCAST_INDEX_API_KEY", "key")
+  monkeypatch.setenv("OREMI_KANSA_PODCAST_INDEX_API_SECRET", "secret")
+  settings = Settings()
+  assert settings.catalog_backend == "api"
+  assert settings.podcast_index_api_key == "key"
+  assert settings.podcast_index_api_secret == "secret"
