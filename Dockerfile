@@ -49,6 +49,6 @@ ENV OREMI_KANSA_DATA_PATH="/oremi/data"
 VOLUME /oremi/data
 EXPOSE 5046
 
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl -f http://localhost:5046/health/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=45m --retries=3 CMD prefix="${OREMI_KANSA_API_PREFIX:-/}"; prefix="/${prefix#/}"; prefix="${prefix%/}"; curl -fsS "http://127.0.0.1:${OREMI_KANSA_SERVER_PORT:-5046}${prefix}/health/" || exit 1
 
 CMD ["python", "/oremi/kansa"]
