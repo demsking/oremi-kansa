@@ -26,6 +26,7 @@ from collections import OrderedDict
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -88,11 +89,14 @@ class PodcastDatabase:
         needs_download = True
 
     if needs_download:
+      logger.info("Podcast database is missing; starting initial installation")
       await self._install_missing_database()
 
     if self.settings.database_search_index_enabled:
+      logger.info("Preparing podcast database search indexes")
       await asyncio.to_thread(self._prepare_search_indexes_locked, self.path)
 
+    logger.info("Preparing podcast episode cache")
     await asyncio.to_thread(self._prepare_cache)
     await self._refresh_database_signature()
 
@@ -113,6 +117,7 @@ class PodcastDatabase:
   async def update(self) -> None:
     """Download, validate, and atomically replace the database."""
     async with self._lock:
+      logger.info("Starting podcast database update")
       await self._replace_database()
 
   async def _install_missing_database(self) -> None:
@@ -123,14 +128,21 @@ class PodcastDatabase:
           logger.info("Using database installed by another replica")
           return
 
+      logger.info("Installing shared podcast database")
       await self._replace_database()
 
   async def _replace_database(self) -> None:
+    started = perf_counter()
     token = f"{os.getpid()}-{uuid.uuid4().hex}"
     archive = self.data_path / f"{DATABASE_NAME}.{token}.download"
     replacement = self.data_path / f"{DATABASE_NAME}.{token}.new"
 
     try:
+      logger.info(
+        "Downloading podcast database: url=%s",
+        self.settings.database_download_url,
+      )
+      downloaded_bytes = 0
       async with self.http_client.stream(
         "GET",
         self.settings.database_download_url,
@@ -145,19 +157,55 @@ class PodcastDatabase:
         response.raise_for_status()
         with archive.open("wb") as output:
           async for chunk in response.aiter_bytes(1024 * 1024):
+            downloaded_bytes += len(chunk)
             output.write(chunk)
 
+      logger.info(
+        "Podcast database download complete: bytes=%d duration_ms=%.1f",
+        downloaded_bytes,
+        (perf_counter() - started) * 1000,
+      )
+
+      extract_started = perf_counter()
+      logger.info("Extracting podcast database archive")
       await asyncio.to_thread(self._extract, archive, replacement)
+      logger.info(
+        "Podcast database archive extracted: bytes=%d duration_ms=%.1f",
+        replacement.stat().st_size,
+        (perf_counter() - extract_started) * 1000,
+      )
+
+      validate_started = perf_counter()
+      logger.info("Validating podcast database snapshot")
       await asyncio.to_thread(self._validate, replacement)
+      logger.info(
+        "Podcast database snapshot validated: duration_ms=%.1f",
+        (perf_counter() - validate_started) * 1000,
+      )
 
       if self.settings.database_search_index_enabled:
+        index_started = perf_counter()
+        logger.info("Preparing search indexes for new podcast database")
         await asyncio.to_thread(self._prepare_search_indexes, replacement)
+        logger.info(
+          "Search indexes prepared for new podcast database: duration_ms=%.1f",
+          (perf_counter() - index_started) * 1000,
+        )
+      else:
+        logger.info("Skipping podcast search indexes; disabled by settings")
 
       with self._database_lock():
+        logger.info("Replacing shared podcast database snapshot")
         os.replace(replacement, self.path)
 
       await self._refresh_database_signature()
+      logger.info(
+        "Podcast database update complete: path=%s duration_ms=%.1f",
+        self.path,
+        (perf_counter() - started) * 1000,
+      )
     except (httpx.HTTPError, OSError, tarfile.TarError, sqlite3.Error) as exc:
+      logger.exception("Podcast database update failed")
       raise RuntimeError("Could not update the podcast database") from exc
     finally:
       archive.unlink(missing_ok=True)
