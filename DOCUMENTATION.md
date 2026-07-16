@@ -233,6 +233,10 @@ Every setting is optional and uses the `OREMI_KANSA_` prefix.
   startup for a new snapshot takes longer while these indexes are built;
   subsequent queries and startups reuse them.
 
+  On low-performance storage or small hosts, database validation and
+  persistent search-index creation can take a long time because they scan
+  and write a multi-gigabyte SQLite catalog.
+
 - **`OREMI_KANSA_QUERY_CACHE_SIZE`** — Maximum number of identical query
   results retained in process memory. Defaults to `256`. Set it to `0` to
   disable the memory cache. The cache is cleared whenever the snapshot is
@@ -264,7 +268,10 @@ Every setting is optional and uses the `OREMI_KANSA_` prefix.
   logging remains enabled and parent directories are created automatically.
   Files rotate at approximately 5 MB, with up to five backups retained.
 
-Oremi Kànsà logs the effective configuration during startup.
+Oremi Kànsà logs the effective configuration during startup. During initial
+startup or after a catalog refresh, it also logs each database step: download,
+extraction, validation, search-index preparation, and shared snapshot
+replacement.
 
 ## Transport
 
@@ -277,6 +284,9 @@ http://127.0.0.1:5046/mcp
 
 The health endpoint is `/health/`, and this documentation is served at `/docs/`.
 If `OREMI_KANSA_API_PREFIX` is set, prepend that path to all three endpoints.
+The Docker image gives the health check a long startup grace period because the
+first database download, validation, and search-index build can be slow on
+low-performance nodes or shared storage.
 
 ## Tools
 
