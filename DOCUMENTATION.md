@@ -112,6 +112,23 @@ Prefer NFSv4, keep locking enabled, and avoid `nolock` mounts. Because Oremi
 Kànsà stores SQLite files on this volume, the NFS server should provide stable
 locking and close-to-open cache consistency across all nodes.
 
+### System Requirements
+
+Oremi Kànsà is lightweight once the catalog is ready, but the first startup and
+each catalog refresh can be resource intensive because the service downloads,
+validates, extracts, and indexes a multi-gigabyte SQLite database.
+
+- **Minimum per replica**: 1 CPU, 2 GB RAM, and 20 GB of shared persistent
+  storage for `/oremi/data`.
+- **Recommended per replica**: 2 CPUs, 4 GB RAM, and 30 GB or more of shared
+  persistent storage backed by SSD or low-latency NFS.
+- **Storage**: Use a shared volume with POSIX locking for clustered
+  deployments. NFSv4 is recommended when using NFS.
+- **Startup time**: On slow CPUs, low-memory hosts, HDD-backed storage, or
+  slower NFS exports, validation and search-index creation can take much longer.
+  Increase the Docker health-check start period if your environment needs more
+  than the image default.
+
 ### Deploy with Docker
 
 Use the official Docker image
@@ -173,15 +190,19 @@ services:
     image: demsking/oremi-kansa
     ports:
       - "5046:5046"
-    environment:
-      OREMI_KANSA_SERVER_HOST: 0.0.0.0
-      OREMI_KANSA_DATA_PATH: /oremi/data
     volumes:
       - kansa-data:/oremi/data
     deploy:
       replicas: 2
       restart_policy:
         condition: on-failure
+      resources:
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+        limits:
+          cpus: "2.0"
+          memory: 4G
 
 volumes:
   kansa-data:
@@ -193,7 +214,8 @@ For an NFS-backed deployment, configure the driver or plugin to mount the same
 NFS export on every cluster node that may run a replica, for example an export
 dedicated to `/oremi/data`. Do not give each replica its own local `/oremi/data`
 volume unless you intentionally want each replica to download, index, and cache
-an independent catalog.
+an independent catalog. The `deploy.resources` values above are conservative
+defaults; increase them for low-performance nodes or very slow shared storage.
 
 ## Configuration
 
