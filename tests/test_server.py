@@ -267,6 +267,43 @@ async def test_identical_queries_are_served_from_memory(
   assert second[0]["title"] == "Example Podcast"
 
 
+async def test_query_cache_invalidates_when_shared_database_is_replaced(
+  tmp_path: Path,
+) -> None:
+  path = tmp_path / DATABASE_NAME
+  create_database(path)
+  client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: None))
+  settings = Settings(
+    data_path=str(tmp_path),
+    database_auto_update=False,
+  )
+  database = PodcastDatabase(settings, client)
+  await database.start()
+
+  first = await database.rows(
+    "SELECT title FROM podcasts WHERE id = ?",
+    (42,),
+  )
+  first[0]["title"] = "changed by caller"
+
+  replacement = tmp_path / "replacement.db"
+  create_database(replacement)
+  with sqlite3.connect(replacement) as connection:
+    connection.execute(
+      "UPDATE podcasts SET title = ? WHERE id = ?",
+      ("Replica Updated Podcast", 42),
+    )
+  replacement.replace(path)
+
+  second = await database.rows(
+    "SELECT title FROM podcasts WHERE id = ?",
+    (42,),
+  )
+  assert second[0]["title"] == "Replica Updated Podcast"
+  await database.close()
+  await client.aclose()
+
+
 async def test_episode_listing_fetches_rss_and_populates_cache(catalog) -> None:
   settings, database, client = catalog
   server = create_mcp_server(settings, database, client)

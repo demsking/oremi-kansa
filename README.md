@@ -30,6 +30,7 @@ unified MCP interface.
 - Query the offline Podcast Index SQLite catalog with structured models
 - Accelerate searches with persistent FTS5 indexes and a bounded memory cache
 - Persist and periodically refresh the catalog in `/oremi/data` in Docker
+- Run with multiple Docker Swarm replicas against the same cluster-shared volume
 - Configure database updates, HTTP timeouts, HTTP binding, API prefix, and
   logging through environment variables
 - Serve MCP over Streamable HTTP
@@ -45,7 +46,7 @@ https://demsking.gitlab.io/oremi-kansa/
 
 ## Development
 
-Oremi Device is built with Python and uses `uv` for dependency management. The
+Oremi Kànsà is built with Python and uses `uv` for dependency management. The
 project follows standard Python development practices with type hints, linting,
 and automated testing.
 

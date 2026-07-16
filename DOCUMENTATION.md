@@ -98,6 +98,20 @@ Oremi Kànsà stores its offline catalog and episode cache in `/oremi/data`.
 Mount persistent storage because the catalog is several gigabytes after
 extraction and is retained across container recreation.
 
+Oremi Kànsà is designed for Docker Swarm deployments with multiple replicas
+sharing the same `/oremi/data` volume. Replicas coordinate catalog replacement
+and persistent search-index creation with a filesystem lock in that directory,
+use unique staging files for downloads, and invalidate each process memory
+cache when another replica replaces the catalog. The shared volume must support
+POSIX file locking; use a Swarm-compatible volume driver that can be mounted by
+all nodes running the service.
+
+NFS is a suitable option when every cluster node that may run a replica mounts
+the same export and the server/client configuration supports POSIX locks.
+Prefer NFSv4, keep locking enabled, and avoid `nolock` mounts. Because Oremi
+Kànsà stores SQLite files on this volume, the NFS server should provide stable
+locking and close-to-open cache consistency across all nodes.
+
 ### Deploy with Docker
 
 Use the official Docker image
@@ -147,6 +161,40 @@ Once started, open the interactive documentation at:
 http://localhost:5046/docs/
 ```
 
+### Deploy with Docker Swarm
+
+For production Swarm deployments, run at least two replicas behind the Swarm
+routing mesh or an external reverse proxy. Every replica must mount the same
+shared volume at `/oremi/data`:
+
+```yaml
+services:
+  kansa:
+    image: demsking/oremi-kansa
+    ports:
+      - "5046:5046"
+    environment:
+      OREMI_KANSA_SERVER_HOST: 0.0.0.0
+      OREMI_KANSA_DATA_PATH: /oremi/data
+    volumes:
+      - kansa-data:/oremi/data
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  kansa-data:
+    driver: <shared-volume-driver>
+```
+
+Replace `<shared-volume-driver>` with the storage driver used by your cluster.
+For an NFS-backed deployment, configure the driver or plugin to mount the same
+NFS export on every cluster node that may run a replica, for example an export
+dedicated to `/oremi/data`. Do not give each replica its own local `/oremi/data`
+volume unless you intentionally want each replica to download, index, and cache
+an independent catalog.
+
 ## Configuration
 
 Every setting is optional and uses the `OREMI_KANSA_` prefix.
@@ -171,7 +219,8 @@ Every setting is optional and uses the `OREMI_KANSA_` prefix.
   Podcast Index SQLite catalog.
 
 - **`OREMI_KANSA_DATA_PATH`** — Catalog and episode-cache directory. Defaults
-  to `data` locally and `/oremi/data` in Docker.
+  to `data` locally and `/oremi/data` in Docker. In Docker Swarm, all replicas
+  should point this setting to the same mounted shared volume.
 
 - **`OREMI_KANSA_DATABASE_AUTO_UPDATE`** — Enables atomic background catalog
   updates. Defaults to `true`.
