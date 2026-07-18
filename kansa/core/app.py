@@ -27,6 +27,7 @@ from kansa.api import docs
 from kansa.api import health
 from kansa.core.database import PodcastDatabase
 from kansa.core.package import APP_DESCRIPTION
+from kansa.core.package import APP_DOCUMENTATION_URL
 from kansa.core.package import APP_NAME
 from kansa.core.package import APP_VERSION
 from kansa.core.podcast_index import PodcastIndexClient
@@ -142,7 +143,8 @@ def create_app(settings: Settings) -> FastAPI:
     ),
     stateless_http=True,
     json_response=True,
-    streamable_http_path="/mcp",
+    streamable_http_path="/",
+    website_url=APP_DOCUMENTATION_URL,
   )
 
   @app.exception_handler(Exception)
@@ -163,10 +165,11 @@ def create_app(settings: Settings) -> FastAPI:
 
   app.include_router(health.router, prefix=prefix)
   app.include_router(docs.router, prefix=prefix)
-  app.mount(prefix, mcp.streamable_http_app(), name="mcp")
 
   register_mcp_tools(mcp, settings, database, podcast_index, http_client)
   register_mcp_resources(mcp, settings, database, podcast_index, http_client)
   register_mcp_prompts(mcp)
+
+  app.mount(f"{prefix}/mcp", mcp.streamable_http_app(), name="mcp")
 
   return app
