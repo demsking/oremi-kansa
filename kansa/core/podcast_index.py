@@ -20,8 +20,8 @@ from typing import Any
 
 import httpx
 
-from .models import PodcastCategory
-from .settings import Settings
+from kansa.core.models import PodcastCategory
+from kansa.core.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,8 @@ class PodcastIndexClient:
         self.settings.podcast_index_api_key
         + self.settings.podcast_index_api_secret
         + timestamp
-      ).encode()
+      ).encode(),
+      usedforsecurity=False,
     ).hexdigest()
 
     return {

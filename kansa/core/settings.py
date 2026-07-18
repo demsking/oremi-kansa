@@ -22,8 +22,8 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
-from .package import APP_NAME
-from .package import APP_VERSION
+from kansa.core.package import APP_NAME
+from kansa.core.package import APP_VERSION
 
 
 class Settings(BaseSettings):

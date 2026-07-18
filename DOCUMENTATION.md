@@ -368,6 +368,25 @@ Tool inputs use constrained MCP schemas. Result limits must be between `1` and
 Category IDs and episode IDs are stable identifiers generated locally from
 category names and feed episode identities, respectively.
 
+## Resources
+
+Resources expose direct, read-only data paths for catalog entities. Every
+resource result is serialized to JSON (`application/json`).
+
+- `podcasts:///{feed_id}/details` returns metadata for a specific podcast feed.
+- `podcasts:///{feed_id}/episodes` returns the recent episodes for a podcast.
+- `episodes:///{episode_id}/details` returns metadata for a cached episode.
+- `categories:///list` returns the list of available categories.
+
+## Prompts
+
+Prompts assist AI agents in orchestration and workflow execution:
+
+- `podcast_discovery` recommends podcasts matching a topic, language, and
+  category.
+- `episode_search` helps agents retrieve relevant episodes across feeds.
+- `category_explorer` helps agents explore categories and browse top podcasts.
+
 ## Development
 
 See the [contribution guide](https://gitlab.com/demsking/oremi-kansa/-/blob/main/CONTRIBUTING.md)

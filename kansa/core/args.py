@@ -14,9 +14,9 @@
 # ==============================================================================
 import argparse
 
-from .package import APP_DESCRIPTION
-from .package import APP_NAME
-from .package import APP_VERSION
+from kansa.core.package import APP_DESCRIPTION
+from kansa.core.package import APP_NAME
+from kansa.core.package import APP_VERSION
 
 
 def parse_arguments() -> argparse.Namespace:

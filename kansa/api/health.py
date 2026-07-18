@@ -19,7 +19,7 @@ from fastapi import Request
 from pydantic import BaseModel
 from pydantic import Field
 
-from ..core.package import APP_VERSION
+from kansa.core.package import APP_VERSION
 
 
 API_TAG_METADATA = {

@@ -31,7 +31,7 @@ from typing import Any
 
 import httpx
 
-from .settings import Settings
+from kansa.core.settings import Settings
 
 logger = logging.getLogger(__name__)
 

@@ -21,17 +21,20 @@ import httpx
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
+from mcp.server.fastmcp import FastMCP
 
-from ..api import docs
-from ..api import health
-from ..utils.logger import configure_logging
-from .database import PodcastDatabase
-from .package import APP_DESCRIPTION
-from .package import APP_NAME
-from .package import APP_VERSION
-from .podcast_index import PodcastIndexClient
-from .server import create_mcp_server
-from .settings import Settings
+from kansa.api import docs
+from kansa.api import health
+from kansa.core.database import PodcastDatabase
+from kansa.core.package import APP_DESCRIPTION
+from kansa.core.package import APP_NAME
+from kansa.core.package import APP_VERSION
+from kansa.core.podcast_index import PodcastIndexClient
+from kansa.core.settings import Settings
+from kansa.mcp.prompts import register_mcp_prompts
+from kansa.mcp.resources import register_mcp_resources
+from kansa.mcp.tools import register_mcp_tools
+from kansa.utils.logger import configure_logging
 
 
 logger = logging.getLogger(__name__)
@@ -41,8 +44,10 @@ def log_startup_settings(settings: Settings) -> None:
   """Log every configured application setting without exposing secrets."""
   for name in settings.__class__.model_fields:
     value = getattr(settings, name)
+
     if "secret" in name or "key" in name:
       value = "***" if value else None
+
     logger.info("Setting %s: %s", name, value)
 
 
@@ -59,12 +64,6 @@ def create_app(settings: Settings) -> FastAPI:
 
   database = PodcastDatabase(settings, http_client)
   podcast_index = PodcastIndexClient(settings, http_client)
-  mcp_server = create_mcp_server(
-    settings,
-    database,
-    podcast_index,
-    http_client,
-  )
 
   @asynccontextmanager
   async def lifespan(app: FastAPI):
@@ -76,9 +75,7 @@ def create_app(settings: Settings) -> FastAPI:
     logger.info(f"{APP_NAME} v{APP_VERSION}")
     log_startup_settings(settings)
 
-    app.state.mcp = mcp_server
     app.state.settings = settings
-
     stack = AsyncExitStack()
 
     try:
@@ -90,7 +87,7 @@ def create_app(settings: Settings) -> FastAPI:
         logger.info("Using local database catalog backend")
         await database.start()
 
-      await stack.enter_async_context(mcp_server.session_manager.run())
+      await stack.enter_async_context(mcp.session_manager.run())
 
       ready = True
       startup_duration = (perf_counter() - startup_started) * 1000
@@ -138,6 +135,16 @@ def create_app(settings: Settings) -> FastAPI:
     ],
   )
 
+  mcp = FastMCP(
+    name="Oremi Kànsà",
+    instructions=(
+      "Browse the podcast catalog and retrieve public feed episodes."
+    ),
+    stateless_http=True,
+    json_response=True,
+    streamable_http_path="/mcp",
+  )
+
   @app.exception_handler(Exception)
   async def unhandled_exception_handler(_, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled application error")
@@ -156,6 +163,10 @@ def create_app(settings: Settings) -> FastAPI:
 
   app.include_router(health.router, prefix=prefix)
   app.include_router(docs.router, prefix=prefix)
-  app.mount(prefix, mcp_server.streamable_http_app(), name="mcp")
+  app.mount(prefix, mcp.streamable_http_app(), name="mcp")
+
+  register_mcp_tools(mcp, settings, database, podcast_index, http_client)
+  register_mcp_resources(mcp, settings, database, podcast_index, http_client)
+  register_mcp_prompts(mcp)
 
   return app

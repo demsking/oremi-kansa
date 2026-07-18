@@ -10,9 +10,12 @@ from mcp.server.fastmcp.exceptions import ToolError
 from kansa.core.database import DATABASE_NAME
 from kansa.core.database import PodcastDatabase
 from kansa.core.podcast_index import PodcastIndexClient
-from kansa.core.server import _category_id
-from kansa.core.server import create_mcp_server
 from kansa.core.settings import Settings
+from kansa.mcp.tools import _category_id
+from kansa.mcp.tools import register_mcp_tools
+from kansa.mcp.resources import register_mcp_resources
+from kansa.mcp.prompts import register_mcp_prompts
+from mcp.server.fastmcp import FastMCP
 
 SCHEMA = """CREATE TABLE podcasts (
   id INTEGER PRIMARY KEY, url TEXT, title TEXT, link TEXT, dead INTEGER,
@@ -92,12 +95,20 @@ def mcp_server(
   database: PodcastDatabase,
   client: httpx.AsyncClient,
 ):
-  return create_mcp_server(
-    settings,
-    database,
-    PodcastIndexClient(settings, client),
-    client,
+  mcp = FastMCP(
+    name="Oremi Kànsà",
+    instructions=(
+      "Browse the podcast catalog and retrieve public feed episodes."
+    ),
+    stateless_http=True,
+    json_response=True,
+    streamable_http_path="/mcp",
   )
+  podcast_index = PodcastIndexClient(settings, client)
+  register_mcp_tools(mcp, settings, database, podcast_index, client)
+  register_mcp_resources(mcp, settings, database, podcast_index, client)
+  register_mcp_prompts(mcp)
+  return mcp
 
 
 @pytest.fixture
@@ -658,3 +669,76 @@ def test_api_settings_load_from_environment(
   assert settings.catalog_backend == "api"
   assert settings.podcast_index_api_key == "key"
   assert settings.podcast_index_api_secret == "secret"
+
+
+async def test_mcp_prompts_are_registered_and_render_correctly(catalog) -> None:
+  settings, database, client = catalog
+  server = mcp_server(settings, database, client)
+
+  prompts = await server.list_prompts()
+  prompt_names = [p.name for p in prompts]
+  assert "podcast_discovery" in prompt_names
+  assert "episode_search" in prompt_names
+  assert "category_explorer" in prompt_names
+
+  discovery_prompt = await server.get_prompt(
+    "podcast_discovery",
+    {"topic": "tech", "language": "en", "category": "News"},
+  )
+  assert len(discovery_prompt.messages) == 1
+  assert (
+    "criteria: Topic: tech, Language: en, Category: News"
+    in discovery_prompt.messages[0].content.text
+  )
+
+  episode_prompt = await server.get_prompt(
+    "episode_search", {"query": "pytest"}
+  )
+  assert len(episode_prompt.messages) == 1
+  assert (
+    "search for podcast episodes related to: 'pytest'"
+    in episode_prompt.messages[0].content.text
+  )
+
+  category_prompt = await server.get_prompt(
+    "category_explorer", {"category": "Technology"}
+  )
+  assert len(category_prompt.messages) == 1
+  assert (
+    "explore podcast categories: browsing 'Technology'"
+    in category_prompt.messages[0].content.text
+  )
+
+
+async def test_mcp_resources_are_registered_and_accessible(catalog) -> None:
+  settings, database, client = catalog
+  server = mcp_server(settings, database, client)
+
+  import json
+
+  # Categories resource
+  cat_res = await server.read_resource("categories:///list")
+  assert len(cat_res) == 1
+  assert cat_res[0].mime_type == "application/json"
+  cats = json.loads(cat_res[0].content)
+  assert any(c["name"] == "Technology" for c in cats)
+
+  # Podcast details resource
+  details_res = await server.read_resource("podcasts:///42/details")
+  assert len(details_res) == 1
+  podcast = json.loads(details_res[0].content)
+  assert podcast["title"] == "Example Podcast"
+
+  # Podcast episodes resource
+  episodes_res = await server.read_resource("podcasts:///42/episodes")
+  assert len(episodes_res) == 1
+  episodes = json.loads(episodes_res[0].content)
+  assert len(episodes) == 1
+  assert episodes[0]["title"] == "Testing today"
+
+  # Episode details resource (first listed/cached)
+  episode_id = episodes[0]["id"]
+  episode_res = await server.read_resource(f"episodes:///{episode_id}/details")
+  assert len(episode_res) == 1
+  episode = json.loads(episode_res[0].content)
+  assert episode["title"] == "Testing today"

@@ -23,25 +23,25 @@ from mcp.server.fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import ValidationError
 
-from .database import CATEGORY_COLUMNS
-from .database import PodcastDatabase
-from .feeds import fetch_episodes
-from .models import CategoryListResponse
-from .models import EpisodeDetails
-from .models import EpisodeListResponse
-from .models import EpisodeSearchResponse
-from .models import EpisodeSummary
-from .models import LanguageCode
-from .models import NonEmptyString
-from .models import PodcastCategory
-from .models import PodcastDetails
-from .models import PodcastListResponse
-from .models import PodcastSearchResponse
-from .models import PodcastSummary
-from .models import PositiveId
-from .models import ResultLimit
-from .podcast_index import PodcastIndexClient
-from .settings import Settings
+from kansa.core.database import CATEGORY_COLUMNS
+from kansa.core.database import PodcastDatabase
+from kansa.core.feeds import fetch_episodes
+from kansa.core.models import CategoryListResponse
+from kansa.core.models import EpisodeDetails
+from kansa.core.models import EpisodeListResponse
+from kansa.core.models import EpisodeSearchResponse
+from kansa.core.models import EpisodeSummary
+from kansa.core.models import LanguageCode
+from kansa.core.models import NonEmptyString
+from kansa.core.models import PodcastCategory
+from kansa.core.models import PodcastDetails
+from kansa.core.models import PodcastListResponse
+from kansa.core.models import PodcastSearchResponse
+from kansa.core.models import PodcastSummary
+from kansa.core.models import PositiveId
+from kansa.core.models import ResultLimit
+from kansa.core.podcast_index import PodcastIndexClient
+from kansa.core.settings import Settings
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True)
 _SEARCH_TERM = re.compile(r"[\w]+", re.UNICODE)
@@ -105,6 +105,7 @@ def _positive_int(value: object) -> int | None:
 
 def _podcast_data(row: dict[str, Any]) -> dict[str, Any]:
   categories = [row.get(column) for column in CATEGORY_COLUMNS]
+
   return {
     "id": row["id"],
     "title": row["title"],
@@ -131,23 +132,14 @@ def _podcast_data(row: dict[str, Any]) -> dict[str, Any]:
   }
 
 
-def create_mcp_server(
+def register_mcp_tools(
+  mcp: FastMCP,
   settings: Settings,
   database: PodcastDatabase,
   podcast_index: PodcastIndexClient,
   http_client: httpx.AsyncClient,
-) -> FastMCP:
+) -> None:
   """Build an MCP server backed by the configured podcast catalog."""
-  mcp = FastMCP(
-    name="Oremi Kànsà",
-    instructions=(
-      "Browse the podcast catalog and retrieve public feed episodes."
-    ),
-    stateless_http=True,
-    json_response=True,
-    streamable_http_path="/mcp",
-  )
-
   using_api = settings.catalog_backend == "api"
 
   async def podcast(feed_id: int) -> PodcastDetails:
@@ -167,8 +159,10 @@ def create_mcp_server(
       "AND title IS NOT NULL AND TRIM(title) != ''",
       (feed_id,),
     )
+
     if not rows:
       raise ToolError("Podcast not found")
+
     try:
       return PodcastDetails.model_validate(_podcast_data(rows[0]))
     except ValidationError as exc:
@@ -451,5 +445,3 @@ def create_mcp_server(
     items = await search(topic or "%", language, name, explicit, limit)
 
     return PodcastListResponse(podcasts=items, count=len(items))
-
-  return mcp
