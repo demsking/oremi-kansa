@@ -143,7 +143,7 @@ def create_app(settings: Settings) -> FastAPI:
     ),
     stateless_http=True,
     json_response=True,
-    streamable_http_path="/",
+    streamable_http_path="/mcp",
     website_url=APP_DOCUMENTATION_URL,
   )
 
@@ -158,7 +158,7 @@ def create_app(settings: Settings) -> FastAPI:
   @app.get("/", include_in_schema=False)
   async def redirect_to_docs():
     return HTMLResponse(
-      status_code=307, headers={"Location": docs.router.prefix + "/"}
+      status_code=307, headers={"Location": prefix + docs.router.prefix}
     )
 
   prefix = "" if settings.api_prefix == "/" else settings.api_prefix
@@ -170,6 +170,6 @@ def create_app(settings: Settings) -> FastAPI:
   register_mcp_resources(mcp, settings, database, podcast_index, http_client)
   register_mcp_prompts(mcp)
 
-  app.mount(f"{prefix}/mcp", mcp.streamable_http_app(), name="mcp")
+  app.mount(settings.api_prefix, mcp.streamable_http_app(), name="mcp")
 
   return app

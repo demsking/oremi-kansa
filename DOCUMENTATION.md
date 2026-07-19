@@ -230,7 +230,7 @@ Every setting is optional and uses the `OREMI_KANSA_` prefix.
 - **`OREMI_KANSA_SERVER_HOST`**
   HTTP address on which the server listens. Use `0.0.0.0` in a
   container or when accepting connections from other machines.
-  Defaults to `127.0.0.1`.
+  Defaults to `0.0.0.0`.
 
 - **`OREMI_KANSA_SERVER_PORT`**
   HTTP listening port. Must be between `1` and `65535`.
