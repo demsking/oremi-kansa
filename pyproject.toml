@@ -1,6 +1,6 @@
 [project]
 name = "oremi-kansa"
-version = "1.0.0b8"
+version = "1.0.0b9"
 description = "MCP server for podcast discovery and playback."
 authors = [{ name = "Sébastien Demanou", email = "demsking@gmail.com" }]
 maintainers = [{ name = "Sébastien Demanou", email = "demsking@gmail.com" }]
