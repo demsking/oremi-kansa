@@ -333,22 +333,19 @@ Choose between local database or direct Podcast Index API:
   automatically. Files rotate at approximately 5 MB, with up to
   five backups retained. Unset by default (console only).
 
-## Transport
+## Model Context Protocol
 
-Oremi Kànsà uses MCP Streamable HTTP. With the default configuration, connect
-an MCP client to:
+Oremi Kànsà implements the Model Context Protocol (MCP) using a strongly-typed
+server. It exposes its core functionality as a set of tools, resources and
+prompts that LLM agents can call directly.
 
-```text
-http://127.0.0.1:5046/mcp
+The MCP server uses the **Streamable HTTP transport** protocol and is mounted at:
+
+```txt
+/mcp
 ```
 
-The health endpoint is `/health/`, and this documentation is served at `/docs/`.
-If `OREMI_KANSA_API_PREFIX` is set, prepend that path to all three endpoints.
-The Docker image gives the health check a long startup grace period because the
-first database download, validation, and search-index build can be slow on
-low-performance nodes or shared storage.
-
-## Tools
+### Available MCP Tools
 
 Tool inputs use constrained MCP schemas. Result limits must be between `1` and
 `100`. Every result is a structured, validated Pydantic response model.
@@ -368,7 +365,7 @@ Tool inputs use constrained MCP schemas. Result limits must be between `1` and
 Category IDs and episode IDs are stable identifiers generated locally from
 category names and feed episode identities, respectively.
 
-## Resources
+### Available MCP Resources
 
 Resources expose direct, read-only data paths for catalog entities. Every
 resource result is serialized to JSON (`application/json`).
@@ -378,7 +375,7 @@ resource result is serialized to JSON (`application/json`).
 - `episodes:///{episode_id}/details` returns metadata for a cached episode.
 - `categories:///list` returns the list of available categories.
 
-## Prompts
+### Available MCP Prompts
 
 Prompts assist AI agents in orchestration and workflow execution:
 
