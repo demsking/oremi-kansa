@@ -144,11 +144,9 @@ class PodcastDatabase:
     replacement = self.data_path / f"{DATABASE_NAME}.{token}.new"
 
     try:
-      logger.info(
-        "Downloading podcast database: url=%s",
-        self.settings.database_download_url,
-      )
+      logger.info(f"Downloading podcast database: url={self.settings.database_download_url}")
       downloaded_bytes = 0
+
       async with self.http_client.stream(
         "GET",
         self.settings.database_download_url,
@@ -161,6 +159,7 @@ class PodcastDatabase:
         ),
       ) as response:
         response.raise_for_status()
+
         with archive.open("wb") as output:
           async for chunk in response.aiter_bytes(1024 * 1024):
             downloaded_bytes += len(chunk)
@@ -174,6 +173,7 @@ class PodcastDatabase:
 
       extract_started = perf_counter()
       logger.info("Extracting podcast database archive")
+
       await asyncio.to_thread(self._extract, archive, replacement)
       logger.info(
         "Podcast database archive extracted: bytes=%d duration_ms=%.1f",
@@ -308,11 +308,7 @@ class PodcastDatabase:
   def _extract(archive_path: Path, output_path: Path) -> None:
     with tarfile.open(archive_path, "r:gz") as archive:
       member = next(
-        (
-          item
-          for item in archive.getmembers()
-          if Path(item.name).name == DATABASE_NAME and item.isfile()
-        ),
+        (item for item in archive.getmembers() if Path(item.name).name == DATABASE_NAME and item.isfile()),
         None,
       )
 
@@ -339,9 +335,7 @@ class PodcastDatabase:
       if not check or check[0] != "ok":
         raise sqlite3.DatabaseError("Database integrity check failed")
 
-      columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(podcasts)")
-      }
+      columns = {row[1] for row in connection.execute("PRAGMA table_info(podcasts)")}
 
       if not REQUIRED_COLUMNS.issubset(columns):
         raise sqlite3.DatabaseError("Unsupported database schema")
@@ -366,21 +360,15 @@ class PodcastDatabase:
     with sqlite3.connect(path, timeout=30) as connection:
       connection.execute("PRAGMA busy_timeout = 30000")
       connection.execute("PRAGMA temp_store = MEMORY")
-      connection.execute(
-        "CREATE TABLE IF NOT EXISTS kansa_metadata ("
-        "key TEXT PRIMARY KEY, value TEXT NOT NULL)"
-      )
-      version = connection.execute(
-        "SELECT value FROM kansa_metadata WHERE key = 'search_schema'"
-      ).fetchone()
+      connection.execute("CREATE TABLE IF NOT EXISTS kansa_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+      version = connection.execute("SELECT value FROM kansa_metadata WHERE key = 'search_schema'").fetchone()
 
       if version and version[0] == "2":
         return
 
       logger.info("Building persistent podcast search indexes")
       connection.execute(
-        "CREATE INDEX IF NOT EXISTS kansa_rank_idx ON podcasts ("
-        "dead, popularityScore DESC, newestItemPubdate DESC)"
+        "CREATE INDEX IF NOT EXISTS kansa_rank_idx ON podcasts (dead, popularityScore DESC, newestItemPubdate DESC)"
       )
       connection.execute(
         "CREATE INDEX IF NOT EXISTS kansa_language_rank_v2_idx ON podcasts ("
@@ -405,13 +393,8 @@ class PodcastDatabase:
         "title, description, itunesAuthor, content='podcasts', "
         "content_rowid='id', tokenize='unicode61 remove_diacritics 2')"
       )
-      connection.execute(
-        "INSERT INTO podcasts_fts(podcasts_fts) VALUES('rebuild')"
-      )
-      connection.execute(
-        "INSERT OR REPLACE INTO kansa_metadata(key, value) "
-        "VALUES('search_schema', '2')"
-      )
+      connection.execute("INSERT INTO podcasts_fts(podcasts_fts) VALUES('rebuild')")
+      connection.execute("INSERT OR REPLACE INTO kansa_metadata(key, value) VALUES('search_schema', '2')")
       connection.execute("PRAGMA optimize")
       logger.info("Podcast search indexes are ready")
 
@@ -433,10 +416,7 @@ class PodcastDatabase:
         connection.execute("DROP TABLE IF EXISTS episodes_legacy")
         connection.execute("ALTER TABLE episodes RENAME TO episodes_legacy")
 
-      connection.execute(
-        "CREATE TABLE IF NOT EXISTS episodes ("
-        "id INTEGER PRIMARY KEY, payload TEXT NOT NULL)"
-      )
+      connection.execute("CREATE TABLE IF NOT EXISTS episodes (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)")
 
       if columns and column_names != ["id", "payload"]:
         if {"id", "payload"}.issubset(column_names):
@@ -453,10 +433,7 @@ class PodcastDatabase:
       connection.execute("PRAGMA busy_timeout = 30000")
       connection.executemany(
         "INSERT OR REPLACE INTO episodes (id, payload) VALUES (?, ?)",
-        [
-          (item["id"], json.dumps(item, ensure_ascii=False))
-          for item in episodes
-        ],
+        [(item["id"], json.dumps(item, ensure_ascii=False)) for item in episodes],
       )
 
   def _cached_episode(self, episode_id: int) -> dict[str, Any] | None:

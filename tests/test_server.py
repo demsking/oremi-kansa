@@ -1,3 +1,17 @@
+# Copyright 2026 Sébastien Demanou. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 import io
 import sqlite3
 import tarfile
@@ -5,17 +19,17 @@ from pathlib import Path
 
 import httpx
 import pytest
+from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from kansa.core.database import DATABASE_NAME
 from kansa.core.database import PodcastDatabase
 from kansa.core.podcast_index import PodcastIndexClient
 from kansa.core.settings import Settings
+from kansa.mcp.prompts import register_mcp_prompts
+from kansa.mcp.resources import register_mcp_resources
 from kansa.mcp.tools import _category_id
 from kansa.mcp.tools import register_mcp_tools
-from kansa.mcp.resources import register_mcp_resources
-from kansa.mcp.prompts import register_mcp_prompts
-from mcp.server.fastmcp import FastMCP
 
 SCHEMA = """CREATE TABLE podcasts (
   id INTEGER PRIMARY KEY, url TEXT, title TEXT, link TEXT, dead INTEGER,
@@ -654,7 +668,7 @@ def test_offline_settings_load_from_environment(
   monkeypatch.setenv("OREMI_KANSA_DATABASE_AUTO_UPDATE", "false")
   monkeypatch.setenv("OREMI_KANSA_DATABASE_UPDATE_INTERVAL_HOURS", "12")
   settings = Settings()
-  assert settings.data_path == "/tmp/catalog"
+  assert settings.data_path == Path("/tmp/catalog")
   assert settings.database_auto_update is False
   assert settings.database_update_interval_hours == 12
 

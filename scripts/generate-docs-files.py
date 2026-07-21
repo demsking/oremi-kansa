@@ -15,11 +15,11 @@
 from fastapi.testclient import TestClient
 
 from kansa import app
-from kansa.core.package import STATIC_DIR
+from kansa.core.package import HTDOCS_DIR
 
 
-HTDOCS_INDEX_FILE = STATIC_DIR / "index.html"
-HTDOC_OPENAPI_FILE = STATIC_DIR / "openapi.json"
+HTDOCS_INDEX_FILE = HTDOCS_DIR / "index.html"
+HTDOC_OPENAPI_FILE = HTDOCS_DIR / "openapi.json"
 
 client = TestClient(app)
 
@@ -33,12 +33,7 @@ def generate_openapi():
 
 def generate_static_doc():
   response = client.get("/docs")
-  content = (
-    response.content.decode("utf-8")
-    .replace("\\", "\\\\")
-    .replace("`", "\\`")
-    .replace("$", "\\$")
-  )
+  content = response.content.decode("utf-8").replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
 
   HTDOCS_INDEX_FILE.write_text(content)
 

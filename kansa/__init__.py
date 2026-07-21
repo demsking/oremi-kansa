@@ -30,9 +30,7 @@ except ValidationError as exc:
   logger.error("Invalid Oremi Kànsà configuration:")
 
   for error in exc.errors():
-    logger.error(
-      "- %s: %s", ".".join(str(part) for part in error["loc"]), error["msg"]
-    )
+    logger.error("- %s: %s", ".".join(str(part) for part in error["loc"]), error["msg"])
 
   sys.exit(1)
 except RuntimeError as exc:

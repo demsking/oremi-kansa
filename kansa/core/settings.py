@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-# Copyright 2026 Sébastien Demanou. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0.
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -85,9 +85,8 @@ class Settings(BaseSettings):
     description="Offline Podcast Index database archive URL.",
   )
 
-  data_path: str = Field(
-    default="data",
-    min_length=1,
+  data_path: Path = Field(
+    default=None,  # type: ignore
     description="Podcast database and episode cache directory.",
   )
 
@@ -151,6 +150,14 @@ class Settings(BaseSettings):
     description="Optional rotating log file path.",
   )
 
+  @field_validator("data_path", mode="before")
+  @classmethod
+  def validate_data_path(cls, value) -> Path:
+    if value is not None:
+      return Path(value)
+
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
+
   @field_validator("api_prefix")
   @classmethod
   def validate_api_prefix(cls, value: str) -> str:
@@ -167,4 +174,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
   """Return cached application settings."""
-  return Settings()
+  return Settings()  # pyright: ignore
