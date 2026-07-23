@@ -54,10 +54,7 @@ async def main() -> None:
         },
         "access": {
           "()": "uvicorn.logging.AccessFormatter",
-          "fmt": (
-            f"%(asctime)s - {APP_NAME} - HTTP - %(client_addr)s - "
-            '"%(request_line)s" %(status_code)s'
-          ),
+          "fmt": (f'%(asctime)s - {APP_NAME} - HTTP - %(client_addr)s - "%(request_line)s" %(status_code)s'),
           "datefmt": LOGGER_DATE_FORMAT,
           "use_colors": True,
         },
@@ -99,6 +96,9 @@ def start():
   except KeyboardInterrupt:
     pass
   except Exception as exception:
+    if logger.isEnabledFor(logging.DEBUG):
+      logger.exception(exception)
+
     logger.error(f"Oremi Kànsà failed to start: {exception}")
     sys.exit(3)
 
