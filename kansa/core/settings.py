@@ -152,9 +152,15 @@ class Settings(BaseSettings):
 
   @field_validator("data_path", mode="before")
   @classmethod
-  def validate_data_path(cls, value) -> Path:
+  def validate_data_path(cls, value: object) -> Path:
     if value is not None:
-      return Path(value)
+      if isinstance(value, str) and value:
+        return Path(value)
+
+      if isinstance(value, Path):
+        return value
+
+      raise ValueError("OREMI_KANSA_DATA_PATH must be a non-empty string")
 
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / APP_NAME
 

@@ -331,7 +331,7 @@ class PodcastIndexClient:
   @staticmethod
   def _positive_int(value: object) -> int | None:
     try:
-      normalized = int(value)  # type: ignore[arg-type]
+      normalized = int(value)  # type: ignore[call-overload]
     except (TypeError, ValueError, OverflowError):
       return None
 

@@ -31,7 +31,10 @@ def _name(element: Any) -> str:
 def _text(element: Any, *names: str) -> str | None:
   for child in element:
     if _name(child) in names and child.text:
-      return child.text.strip()
+      text_val: str = child.text.strip()
+
+      return text_val
+
   return None
 
 

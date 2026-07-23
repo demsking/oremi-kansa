@@ -13,12 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from contextlib import AsyncExitStack
 from time import perf_counter
 
 import httpx
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
@@ -67,7 +69,7 @@ def create_app(settings: Settings) -> FastAPI:
   podcast_index = PodcastIndexClient(settings, http_client)
 
   @asynccontextmanager
-  async def lifespan(app: FastAPI):
+  async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     startup_started = perf_counter()
     ready = False
 
@@ -148,7 +150,7 @@ def create_app(settings: Settings) -> FastAPI:
   )
 
   @app.exception_handler(Exception)
-  async def unhandled_exception_handler(_, exc: Exception) -> JSONResponse:
+  async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled application error")
     return JSONResponse(
       status_code=500,
@@ -156,7 +158,7 @@ def create_app(settings: Settings) -> FastAPI:
     )
 
   @app.get("/", include_in_schema=False)
-  async def redirect_to_docs():
+  async def redirect_to_docs() -> HTMLResponse:
     return HTMLResponse(
       status_code=307, headers={"Location": prefix + docs.router.prefix}
     )

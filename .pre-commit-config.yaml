@@ -71,8 +71,19 @@ repos:
       - id: mypy
         name: "mypy (strict type checking)"
         description: "Run mypy in strict mode to perform static type checking."
+        exclude: ^(tests)/.*
         args:
           - --strict
+        additional_dependencies:
+          - "fastapi[standard]>=0.115.0,<1.0.0"
+          - "uvicorn>=0.34.0,<1.0.0"
+          - "pydantic>=2.10.0,<3.0.0"
+          - "pydantic-settings>=2.14.2"
+          - "mcp>=1.28.1"
+          - "httpx>=0.28.0,<1.0.0"
+          - "defusedxml>=0.7.1,<1.0.0"
+          - "pathspec"
+          - "types-defusedxml"
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.4

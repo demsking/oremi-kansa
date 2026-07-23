@@ -96,7 +96,7 @@ def _podcast_type(value: object) -> str | None:
 def _positive_int(value: object) -> int | None:
   """Normalize optional numeric database fields."""
   try:
-    normalized = int(value)  # type: ignore[arg-type]
+    normalized = int(value)  # type: ignore[call-overload]
   except (TypeError, ValueError, OverflowError):
     return None
 
