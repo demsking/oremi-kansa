@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 from defusedxml import ElementTree
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError
 
 _TAG = re.compile(r"^\{[^}]+\}")
 

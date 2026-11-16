@@ -89,7 +89,7 @@ Docker image is officially available on Docker Hub, supporting both
 `linux/amd64` and `linux/arm64` platforms. The image exposes port `5046`, which
 serves the REST API and the interactive documentation.
 
-The interactive documentation can be accessed at `http://localhost:5046/docs`
+The interactive documentation can be accessed at `http://localhost:5046/docs/`
 and allows testing available endpoints directly from the browser.
 
 ### Volumes
@@ -173,7 +173,7 @@ volumes:
 Start the services with:
 
 ```sh
-docker compose up -d
+docker --context default compose up -d
 ```
 
 Once started, open the interactive documentation at:

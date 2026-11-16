@@ -16,11 +16,12 @@ import io
 import sqlite3
 import tarfile
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from kansa.core.database import DATABASE_NAME
 from kansa.core.database import PodcastDatabase
@@ -41,6 +42,13 @@ SCHEMA = """CREATE TABLE podcasts (
   category4 TEXT, category5 TEXT, category6 TEXT, category7 TEXT,
   category8 TEXT, category9 TEXT, category10 TEXT
 )"""
+
+
+async def call_tool(server: MCPServer, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+  """Return the structured payload from an MCP 2 tool call."""
+  result = await server.call_tool(name, arguments)
+  assert result.structured_content is not None
+  return result.structured_content
 
 
 def create_database(path: Path) -> None:
@@ -109,14 +117,9 @@ def mcp_server(
   database: PodcastDatabase,
   client: httpx.AsyncClient,
 ):
-  mcp = FastMCP(
+  mcp = MCPServer(
     name="Oremi Kànsà",
-    instructions=(
-      "Browse the podcast catalog and retrieve public feed episodes."
-    ),
-    stateless_http=True,
-    json_response=True,
-    streamable_http_path="/mcp",
+    instructions=("Browse the podcast catalog and retrieve public feed episodes."),
   )
   podcast_index = PodcastIndexClient(settings, client)
   register_mcp_tools(mcp, settings, database, podcast_index, client)
@@ -157,22 +160,14 @@ async def catalog(tmp_path: Path):
 
 async def test_tool_schemas_remain_structured_and_constrained(catalog) -> None:
   settings, database, client = catalog
-  tools = {
-    tool.name: tool
-    for tool in await mcp_server(settings, database, client).list_tools()
-  }
+  tools = {tool.name: tool for tool in await mcp_server(settings, database, client).list_tools()}
   assert len(tools) == 10
-  schema = tools["search_podcasts"].inputSchema["properties"]
+  schema = tools["search_podcasts"].input_schema["properties"]
   assert schema["query"]["minLength"] == 1
   assert schema["limit"]["minimum"] == 1
   assert schema["limit"]["maximum"] == 100
-  assert (
-    tools["search_podcasts"].outputSchema["properties"]["podcasts"]["type"]
-    == "array"
-  )
-  episode_schema = tools["list_podcast_episodes"].outputSchema["$defs"][
-    "EpisodeSummary"
-  ]
+  assert tools["search_podcasts"].output_schema["properties"]["podcasts"]["type"] == "array"
+  episode_schema = tools["list_podcast_episodes"].output_schema["$defs"]["EpisodeSummary"]
   assert "feed_id" in episode_schema["required"]
   assert "feedId" not in episode_schema["properties"]
   assert "enclosure_url" in episode_schema["properties"]
@@ -182,7 +177,8 @@ async def test_tool_schemas_remain_structured_and_constrained(catalog) -> None:
 async def test_search_and_details_use_offline_database(catalog) -> None:
   settings, database, client = catalog
   server = mcp_server(settings, database, client)
-  _, search = await server.call_tool(
+  search = await call_tool(
+    server,
     "search_podcasts",
     {
       "query": "testing",
@@ -191,7 +187,7 @@ async def test_search_and_details_use_offline_database(catalog) -> None:
       "limit": 5,
     },
   )
-  _, details = await server.call_tool("get_podcast", {"feed_id": 42})
+  details = await call_tool(server, "get_podcast", {"feed_id": 42})
   assert search["count"] == 1
   assert search["podcasts"][0]["id"] == 42
   assert details["author"] == "Author"
@@ -214,7 +210,8 @@ async def test_noncanonical_snapshot_records_are_normalized_or_skipped(
   database = PodcastDatabase(settings, client)
   await database.start()
   server = mcp_server(settings, database, client)
-  _, result = await server.call_tool(
+  result = await call_tool(
+    server,
     "discover_podcasts",
     {"topic": "Type", "limit": 10},
   )
@@ -237,10 +234,7 @@ async def test_search_episodes_accepts_empty_itunes_id(
     if request.url.host == "feeds.example":
       return httpx.Response(
         200,
-        content=(
-          b"<rss><channel><item><title>Recent episode</title>"
-          b"<guid>episode-empty-itunes</guid></item></channel></rss>"
-        ),
+        content=(b"<rss><channel><item><title>Recent episode</title><guid>episode-empty-itunes</guid></item></channel></rss>"),
       )
     return httpx.Response(404)
 
@@ -252,12 +246,13 @@ async def test_search_episodes_accepts_empty_itunes_id(
   database = PodcastDatabase(settings, client)
   await database.start()
   server = mcp_server(settings, database, client)
-  _, result = await server.call_tool(
+  result = await call_tool(
+    server,
     "search_episodes",
     {"query": "Empty iTunes", "limit": 10},
   )
   assert result == {"episodes": [], "count": 0}
-  _, details = await server.call_tool("get_podcast", {"feed_id": 43})
+  details = await call_tool(server, "get_podcast", {"feed_id": 43})
   assert details["itunes_id"] is None
   await database.close()
   await client.aclose()
@@ -265,10 +260,7 @@ async def test_search_episodes_accepts_empty_itunes_id(
 
 async def test_persistent_search_indexes_are_built(catalog) -> None:
   _, database, _ = catalog
-  rows = await database.rows(
-    "SELECT name FROM sqlite_master WHERE "
-    "name IN ('podcasts_fts', 'kansa_rank_idx') ORDER BY name"
-  )
+  rows = await database.rows("SELECT name FROM sqlite_master WHERE name IN ('podcasts_fts', 'kansa_rank_idx') ORDER BY name")
   assert [row["name"] for row in rows] == [
     "kansa_rank_idx",
     "podcasts_fts",
@@ -342,12 +334,14 @@ async def test_query_cache_invalidates_when_shared_database_is_replaced(
 async def test_episode_listing_fetches_rss_and_populates_cache(catalog) -> None:
   settings, database, client = catalog
   server = mcp_server(settings, database, client)
-  _, listed = await server.call_tool(
+  listed = await call_tool(
+    server,
     "list_podcast_episodes",
     {"feed_id": 42, "limit": 5},
   )
   episode_id = listed["episodes"][0]["id"]
-  _, episode = await server.call_tool(
+  episode = await call_tool(
+    server,
     "get_episode",
     {"episode_id": episode_id},
   )
@@ -358,7 +352,7 @@ async def test_episode_listing_fetches_rss_and_populates_cache(catalog) -> None:
 async def test_categories_use_stable_local_identifiers(catalog) -> None:
   settings, database, client = catalog
   server = mcp_server(settings, database, client)
-  _, result = await server.call_tool("list_categories", {})
+  result = await call_tool(server, "list_categories", {})
   assert result == {
     "categories": [
       {"id": _category_id("News"), "name": "News"},
@@ -372,7 +366,8 @@ async def test_invalid_inputs_are_rejected_without_queries(catalog) -> None:
   settings, database, client = catalog
   server = mcp_server(settings, database, client)
   with pytest.raises(Exception, match="validation error"):
-    await server.call_tool(
+    await call_tool(
+      server,
       "search_podcasts",
       {"query": "", "limit": 101},
     )
@@ -382,7 +377,7 @@ async def test_missing_cached_episode_is_a_safe_error(catalog) -> None:
   settings, database, client = catalog
   server = mcp_server(settings, database, client)
   with pytest.raises(ToolError, match="list or search episodes first"):
-    await server.call_tool("get_episode", {"episode_id": 123})
+    await call_tool(server, "get_episode", {"episode_id": 123})
 
 
 async def test_api_backend_uses_podcast_index_without_local_catalog(
@@ -479,39 +474,47 @@ async def test_api_backend_uses_podcast_index_without_local_catalog(
   await database.start_episode_cache()
   server = mcp_server(settings, database, client)
 
-  _, search = await server.call_tool(
+  search = await call_tool(
+    server,
     "search_podcasts",
     {"query": "testing", "category": "Technology", "limit": 5},
   )
-  _, details = await server.call_tool("get_podcast", {"feed_id": 42})
-  _, direct_episode = await server.call_tool(
+  details = await call_tool(server, "get_podcast", {"feed_id": 42})
+  direct_episode = await call_tool(
+    server,
     "get_episode",
     {"episode_id": 9001},
   )
-  _, listed = await server.call_tool(
+  listed = await call_tool(
+    server,
     "list_podcast_episodes",
     {"feed_id": 42, "limit": 5},
   )
   episode_id = listed["episodes"][0]["id"]
-  _, episode = await server.call_tool("get_episode", {"episode_id": episode_id})
-  _, episode_search = await server.call_tool(
+  episode = await call_tool(server, "get_episode", {"episode_id": episode_id})
+  episode_search = await call_tool(
+    server,
     "search_episodes",
     {"query": "testing", "limit": 5},
   )
-  _, categories = await server.call_tool("list_categories", {})
-  _, category = await server.call_tool(
+  categories = await call_tool(server, "list_categories", {})
+  category = await call_tool(
+    server,
     "browse_category",
     {"category_id": 101, "limit": 5},
   )
-  _, trending = await server.call_tool(
+  trending = await call_tool(
+    server,
     "trending_podcasts",
     {"category_id": 101, "limit": 5},
   )
-  _, similar = await server.call_tool(
+  similar = await call_tool(
+    server,
     "similar_podcasts",
     {"feed_id": 42, "limit": 5},
   )
-  _, discovered = await server.call_tool(
+  discovered = await call_tool(
+    server,
     "discover_podcasts",
     {
       "language": "en",
@@ -584,7 +587,8 @@ async def test_api_get_episode_accepts_episode_list_response(
   await database.start_episode_cache()
   server = mcp_server(settings, database, client)
 
-  _, episode = await server.call_tool(
+  episode = await call_tool(
+    server,
     "get_episode",
     {"episode_id": 424819258337909000},
   )
@@ -603,18 +607,13 @@ async def test_legacy_episode_cache_schema_is_migrated(
   payload = '{"id":123,"feed_id":42,"title":"Cached","feed_title":null}'
 
   with sqlite3.connect(cache_path) as connection:
-    connection.execute(
-      "CREATE TABLE episodes (id TEXT PRIMARY KEY, "
-      "feed_id TEXT NOT NULL, payload TEXT NOT NULL)"
-    )
+    connection.execute("CREATE TABLE episodes (id TEXT PRIMARY KEY, feed_id TEXT NOT NULL, payload TEXT NOT NULL)")
     connection.execute(
       "INSERT INTO episodes VALUES (?, ?, ?)",
       ("123", "42", payload),
     )
 
-  client = httpx.AsyncClient(
-    transport=httpx.MockTransport(lambda _: httpx.Response(404))
-  )
+  client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(404)))
   settings = Settings(
     data_path=str(tmp_path),
     database_auto_update=False,
@@ -623,9 +622,7 @@ async def test_legacy_episode_cache_schema_is_migrated(
   await database.start()
 
   with sqlite3.connect(cache_path) as connection:
-    columns = [
-      column[1] for column in connection.execute("PRAGMA table_info(episodes)")
-    ]
+    columns = [column[1] for column in connection.execute("PRAGMA table_info(episodes)")]
 
   assert columns == ["id", "payload"]
   assert (await database.cached_episode(123))["title"] == "Cached"
@@ -642,11 +639,7 @@ async def test_database_download_is_validated_and_installed(
   with tarfile.open(fileobj=archive, mode="w:gz") as bundle:
     bundle.add(source, arcname=DATABASE_NAME)
 
-  client = httpx.AsyncClient(
-    transport=httpx.MockTransport(
-      lambda _: httpx.Response(200, content=archive.getvalue())
-    )
-  )
+  client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, content=archive.getvalue())))
   data_path = tmp_path / "data"
   settings = Settings(
     data_path=str(data_path),
@@ -655,9 +648,7 @@ async def test_database_download_is_validated_and_installed(
   database = PodcastDatabase(settings, client)
   await database.start()
   assert (data_path / DATABASE_NAME).is_file()
-  assert (await database.rows("SELECT title FROM podcasts"))[0][
-    "title"
-  ] == "Example Podcast"
+  assert (await database.rows("SELECT title FROM podcasts"))[0]["title"] == "Example Podcast"
   await client.aclose()
 
 
@@ -700,28 +691,15 @@ async def test_mcp_prompts_are_registered_and_render_correctly(catalog) -> None:
     {"topic": "tech", "language": "en", "category": "News"},
   )
   assert len(discovery_prompt.messages) == 1
-  assert (
-    "criteria: Topic: tech, Language: en, Category: News"
-    in discovery_prompt.messages[0].content.text
-  )
+  assert "criteria: Topic: tech, Language: en, Category: News" in discovery_prompt.messages[0].content.text
 
-  episode_prompt = await server.get_prompt(
-    "episode_search", {"query": "pytest"}
-  )
+  episode_prompt = await server.get_prompt("episode_search", {"query": "pytest"})
   assert len(episode_prompt.messages) == 1
-  assert (
-    "search for podcast episodes related to: 'pytest'"
-    in episode_prompt.messages[0].content.text
-  )
+  assert "search for podcast episodes related to: 'pytest'" in episode_prompt.messages[0].content.text
 
-  category_prompt = await server.get_prompt(
-    "category_explorer", {"category": "Technology"}
-  )
+  category_prompt = await server.get_prompt("category_explorer", {"category": "Technology"})
   assert len(category_prompt.messages) == 1
-  assert (
-    "explore podcast categories: browsing 'Technology'"
-    in category_prompt.messages[0].content.text
-  )
+  assert "explore podcast categories: browsing 'Technology'" in category_prompt.messages[0].content.text
 
 
 async def test_mcp_resources_are_registered_and_accessible(catalog) -> None:

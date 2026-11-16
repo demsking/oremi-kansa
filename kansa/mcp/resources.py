@@ -13,8 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 import httpx
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 
 from kansa.core.database import PodcastDatabase
@@ -31,7 +31,7 @@ from kansa.mcp.tools import _podcast_data
 
 
 def register_mcp_resources(
-  mcp: FastMCP,
+  mcp: MCPServer,
   settings: Settings,
   database: PodcastDatabase,
   podcast_index: PodcastIndexClient,

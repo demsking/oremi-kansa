@@ -26,7 +26,6 @@ FROM python:3.12-alpine3.21
 # Set the shell to /bin/ash and enable pipefail
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
-RUN apk add --no-cache curl
 RUN adduser -D -h /oremi oremi && mkdir -p /oremi/data
 
 WORKDIR /oremi
@@ -44,11 +43,14 @@ ENV PYTHONUNBUFFERED="1"
 
 ENV OREMI_KANSA_LOG_LEVEL="INFO"
 ENV OREMI_KANSA_SERVER_HOST="0.0.0.0"
+ENV OREMI_KANSA_SERVER_PORT="5046"
+ENV OREMI_KANSA_API_PREFIX="/"
 ENV OREMI_KANSA_DATA_PATH="/oremi/data"
 
 VOLUME /oremi/data
 EXPOSE 5046
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=2h --retries=3 CMD prefix="${OREMI_KANSA_API_PREFIX:-/}"; prefix="/${prefix#/}"; prefix="${prefix%/}"; curl -fsS "http://127.0.0.1:${OREMI_KANSA_SERVER_PORT:-5046}${prefix}/health/" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=2h --retries=3 \
+  CMD python -c "import urllib.request; prefix='${OREMI_KANSA_API_PREFIX}'.strip('/'); url=f'http://localhost:${OREMI_KANSA_SERVER_PORT}/' + (prefix + '/' if prefix else '') + 'health/'; urllib.request.urlopen(url)" || exit 1
 
 CMD ["python", "/oremi/kansa"]

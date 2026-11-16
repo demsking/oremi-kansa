@@ -18,8 +18,8 @@ import zlib
 from typing import Any
 
 import httpx
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import ValidationError
 
@@ -43,7 +43,7 @@ from kansa.core.models import ResultLimit
 from kansa.core.podcast_index import PodcastIndexClient
 from kansa.core.settings import Settings
 
-READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+READ_ONLY = ToolAnnotations(read_only_hint=True, idempotent_hint=True)
 _SEARCH_TERM = re.compile(r"[\w]+", re.UNICODE)
 
 _CATEGORY_MATCH_SQL = (
@@ -116,15 +116,11 @@ def _podcast_data(row: dict[str, Any]) -> dict[str, Any]:
     "ownerName": row.get("itunesOwnerName"),
     "image": row.get("imageUrl"),
     "language": row.get("language"),
-    "explicit": bool(row["explicit"])
-    if row.get("explicit") is not None
-    else None,
+    "explicit": bool(row["explicit"]) if row.get("explicit") is not None else None,
     "type": _podcast_type(row.get("itunesType")),
     "episodeCount": row.get("episodeCount"),
     "newestItemPublishTime": row.get("newestItemPubdate"),
-    "categories": [
-      {"id": _category_id(name), "name": name} for name in categories if name
-    ],
+    "categories": [{"id": _category_id(name), "name": name} for name in categories if name],
     "guid": row.get("podcastGuid"),
     "itunesId": _positive_int(row.get("itunesId")),
     "originalUrl": row.get("originalUrl"),
@@ -133,7 +129,7 @@ def _podcast_data(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def register_mcp_tools(
-  mcp: FastMCP,
+  mcp: MCPServer,
   settings: Settings,
   database: PodcastDatabase,
   podcast_index: PodcastIndexClient,
@@ -155,8 +151,7 @@ def register_mcp_tools(
         raise ToolError("The Podcast Index API record is malformed") from exc
 
     rows = await database.rows(
-      "SELECT * FROM podcasts WHERE id = ? AND id > 0 AND dead = 0 "
-      "AND title IS NOT NULL AND TRIM(title) != ''",
+      "SELECT * FROM podcasts WHERE id = ? AND id > 0 AND dead = 0 AND title IS NOT NULL AND TRIM(title) != ''",
       (feed_id,),
     )
 
@@ -184,9 +179,7 @@ def register_mcp_tools(
             limit,
           )
           if explicit is not None:
-            feeds = [
-              feed for feed in feeds if feed.get("explicit") is explicit
-            ][:limit]
+            feeds = [feed for feed in feeds if feed.get("explicit") is explicit][:limit]
         else:
           feeds = await podcast_index.search_podcasts(
             query,
@@ -217,16 +210,12 @@ def register_mcp_tools(
       clauses.append("podcasts_fts MATCH ?")
       values.append(" AND ".join(f"{term}*" for term in terms))
     elif query != "%":
-      clauses.append(
-        "(p.title LIKE ? OR p.description LIKE ? OR p.itunesAuthor LIKE ?)"
-      )
+      clauses.append("(p.title LIKE ? OR p.description LIKE ? OR p.itunesAuthor LIKE ?)")
       pattern = f"%{query}%"
       values.extend([pattern, pattern, pattern])
 
     if language:
-      clauses.append(
-        "(p.language = ? COLLATE NOCASE OR p.language LIKE ? COLLATE NOCASE)"
-      )
+      clauses.append("(p.language = ? COLLATE NOCASE OR p.language LIKE ? COLLATE NOCASE)")
       values.extend([language.lower(), f"{language.lower()}-%"])
 
     if category:
@@ -242,8 +231,7 @@ def register_mcp_tools(
     if use_fts:
       query = " ".join(
         (
-          "SELECT p.* FROM podcasts p "
-          "JOIN podcasts_fts ON podcasts_fts.rowid = p.id WHERE",
+          "SELECT p.* FROM podcasts p JOIN podcasts_fts ON podcasts_fts.rowid = p.id WHERE",
           " AND ".join(clauses),
           "ORDER BY p.popularityScore DESC, p.newestItemPubdate DESC LIMIT ?",
         )
@@ -270,10 +258,7 @@ def register_mcp_tools(
 
     rows = await database.rows(_CATEGORIES_SQL)
 
-    return [
-      PodcastCategory(id=_category_id(row["name"]), name=row["name"])
-      for row in rows
-    ]
+    return [PodcastCategory(id=_category_id(row["name"]), name=row["name"]) for row in rows]
 
   async def category_name(category_id: int) -> str:
     for category in await categories():
@@ -294,9 +279,7 @@ def register_mcp_tools(
     except ValidationError as exc:
       raise ToolError("The podcast feed returned malformed data") from exc
 
-    await database.cache_episodes(
-      [item.model_dump(by_alias=True) for item in result]
-    )
+    await database.cache_episodes([item.model_dump(by_alias=True) for item in result])
 
     return result
 
@@ -361,18 +344,9 @@ def register_mcp_tools(
     )
     terms = query.casefold().split()
 
-    items = [
-      item for result in results if isinstance(result, list) for item in result
-    ]
+    items = [item for result in results if isinstance(result, list) for item in result]
 
-    items = [
-      item
-      for item in items
-      if all(
-        term in f"{item.title} {item.description or ''}".casefold()
-        for term in terms
-      )
-    ]
+    items = [item for item in items if all(term in f"{item.title} {item.description or ''}".casefold() for term in terms)]
 
     items.sort(key=lambda item: item.date_published or 0, reverse=True)
 

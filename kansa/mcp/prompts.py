@@ -14,13 +14,13 @@
 # ==============================================================================
 from typing import Annotated
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 from mcp.types import PromptMessage
 from mcp.types import TextContent
 from pydantic import Field
 
 
-def register_mcp_prompts(mcp: FastMCP) -> None:
+def register_mcp_prompts(mcp: MCPServer) -> None:
   @mcp.prompt()
   def podcast_discovery(
     topic: Annotated[

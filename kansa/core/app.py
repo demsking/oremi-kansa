@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 from kansa.api import docs
 from kansa.api import health
@@ -138,14 +138,11 @@ def create_app(settings: Settings) -> FastAPI:
     ],
   )
 
-  mcp = FastMCP(
+  mcp = MCPServer(
     name="Oremi Kànsà",
     instructions=(
       "Browse the podcast catalog and retrieve public feed episodes."
     ),
-    stateless_http=True,
-    json_response=True,
-    streamable_http_path="/mcp",
     website_url=APP_DOCUMENTATION_URL,
   )
 
@@ -172,6 +169,15 @@ def create_app(settings: Settings) -> FastAPI:
   register_mcp_resources(mcp, settings, database, podcast_index, http_client)
   register_mcp_prompts(mcp)
 
-  app.mount(settings.api_prefix, mcp.streamable_http_app(), name="mcp")
+  app.mount(
+    settings.api_prefix,
+    mcp.streamable_http_app(
+      streamable_http_path="/mcp",
+      stateless_http=True,
+      json_response=True,
+      host=settings.server_host,
+    ),
+    name="mcp",
+  )
 
   return app
