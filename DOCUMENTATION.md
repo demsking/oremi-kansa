@@ -17,7 +17,7 @@ unified MCP interface.
 
 Project repository: https://gitlab.com/demsking/oremi-kansa
 
-![Oremi Isinmi Logo](./static/logo.jpg)
+![Oremi Kànsà Logo](./static/logo.jpg)
 
 ## Core Capabilities
 
@@ -37,10 +37,10 @@ Project repository: https://gitlab.com/demsking/oremi-kansa
 
 ## Deployment
 
-Oremi Kànsà is distributed as a multi-platform Docker image for
-`linux/amd64` and `linux/arm64`. It can be deployed as a standalone service or
+The [official Docker image](https://hub.docker.com/r/demsking/oremi-kansa)
+supports `linux/amd64` and `linux/arm64`. It can be deployed as a standalone service or
 integrated into the Oremi ecosystem alongside services such as Oremi Isinmi,
-Oremi Ojọ, Oremi Kànsà, and Oremi Kansa.
+Oremi Ojọ, Oremi Rediyo, and Oremi Iṣakoso.
 
 The following sections describe the available Docker image, persistent storage
 requirements, and example deployments using both Docker and Docker Compose.
